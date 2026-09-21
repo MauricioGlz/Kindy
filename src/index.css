@@ -1,0 +1,25 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: 'Outfit', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --color-pastel-pink: #FCE7F3;
+  --color-pastel-pink-dark: #F472B6;
+  --color-pastel-blue: #E0F2FE;
+  --color-pastel-blue-dark: #38BDF8;
+  --color-pastel-green: #DCFCE7;
+  --color-pastel-green-dark: #4ADE80;
+  --color-pastel-yellow: #FEF9C3;
+  --color-pastel-yellow-dark: #FACC15;
+  --color-pastel-purple: #F3E8FF;
+  --color-pastel-purple-dark: #C084FC;
+  --color-pastel-surface: #FAF7F5;
+}
+
+@layer utilities {
+  .bg-canvas-cover {
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+  }
+}
+

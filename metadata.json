@@ -1,0 +1,6 @@
+{
+  "name": "Sistema Kinder - Portal de Gestión",
+  "description": "Sistema de gestión para guarderías y kinders con control de alumnos, entregas y recepciones por PIN, aulas, contabilidad, documentos y base de datos SQL.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
