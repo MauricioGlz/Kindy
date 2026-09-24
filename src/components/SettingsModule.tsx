@@ -12,8 +12,15 @@ import {
   Shield,
   Palette,
   CreditCard,
+  BookOpen,
+  Plus,
+  ListChecks,
+  RotateCcw,
+  Boxes,
+  Receipt,
+  School,
 } from 'lucide-react';
-import { InstitutionSettings, Employee } from '../types.ts';
+import { InstitutionSettings, Employee, EnabledModulesConfig } from '../types.ts';
 import { useDebugMode } from '../context/DebugContext.tsx';
 
 interface SettingsModuleProps {
@@ -44,6 +51,28 @@ export default function SettingsModule({
   const [accountHolder, setAccountHolder] = useState<string>(settings.accountHolder || settings.name);
   const [clabe, setClabe] = useState<string>(settings.clabe || '012 180 01548293019 4');
   const [accountNumber, setAccountNumber] = useState<string>(settings.accountNumber || '1548293019');
+  const [enabledModules, setEnabledModules] = useState<EnabledModulesConfig>(
+    settings.enabledModules || {
+      libreta: true,
+      contabilidad: true,
+      aulas: true,
+      profesores: true,
+      documentos: true,
+    }
+  );
+  const [activitiesList, setActivitiesList] = useState<string[]>(
+    settings.customActivities && settings.customActivities.length > 0
+      ? settings.customActivities
+      : [
+          'Comió toda su comida / porción',
+          'Durmió siesta (sueño reparador)',
+          'Fue al baño / control de esfínteres / cambio de pañal',
+          'Participó en dinámicas, cantos y asamblea',
+          'Hidratación adecuada (bebió agua)',
+          'Juego al aire libre y estimulación motriz',
+        ]
+  );
+  const [newActivityInput, setNewActivityInput] = useState<string>('');
   const [savedNotice, setSavedNotice] = useState<string | null>(null);
 
   // New Employee Form State
@@ -54,6 +83,41 @@ export default function SettingsModule({
   const [empPhoto, setEmpPhoto] = useState<string>(
     'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?w=200'
   );
+
+  const handleToggleModule = (moduleKey: keyof EnabledModulesConfig) => {
+    const updated: EnabledModulesConfig = {
+      ...enabledModules,
+      [moduleKey]: !enabledModules[moduleKey],
+    };
+    setEnabledModules(updated);
+    onUpdateSettings({
+      ...settings,
+      name: instName.trim(),
+      logoUrl: logoUrl.trim(),
+      bannerUrl: bannerUrl.trim(),
+      loginBgUrl: loginBgUrl.trim() || undefined,
+      bankName: bankName.trim(),
+      accountHolder: accountHolder.trim(),
+      clabe: clabe.trim(),
+      accountNumber: accountNumber.trim(),
+      customActivities: activitiesList,
+      enabledModules: updated,
+    });
+    setSavedNotice(
+      `Módulo "${
+        moduleKey === 'libreta'
+          ? 'Libreta de Actividades'
+          : moduleKey === 'contabilidad'
+          ? 'Contabilidad'
+          : moduleKey === 'aulas'
+          ? 'Aulas y Salas'
+          : moduleKey === 'profesores'
+          ? 'Profesores'
+          : 'Documentos'
+      }" ${updated[moduleKey] ? 'habilitado' : 'deshabilitado'} exitosamente.`
+    );
+    setTimeout(() => setSavedNotice(null), 3000);
+  };
 
   const handleSaveSettings = (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,13 +130,91 @@ export default function SettingsModule({
       accountHolder: accountHolder.trim(),
       clabe: clabe.trim(),
       accountNumber: accountNumber.trim(),
+      customActivities: activitiesList,
+      enabledModules,
     });
     setSavedNotice(
       isDebugMode
-        ? '¡Ajustes de identidad y cuenta bancaria guardados en SQLite!'
-        : '¡Ajustes de identidad y cuenta bancaria guardados exitosamente!'
+        ? '¡Ajustes de identidad, cuenta bancaria y actividades guardados en SQLite!'
+        : '¡Ajustes guardados exitosamente!'
     );
     setTimeout(() => setSavedNotice(null), 3500);
+  };
+
+  const handleAddActivity = (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newActivityInput.trim();
+    if (!clean) return;
+    if (activitiesList.includes(clean)) {
+      alert('Esta actividad ya está en la lista de la libreta.');
+      return;
+    }
+    const updated = [...activitiesList, clean];
+    setActivitiesList(updated);
+    setNewActivityInput('');
+    onUpdateSettings({
+      ...settings,
+      name: instName.trim(),
+      logoUrl: logoUrl.trim(),
+      bannerUrl: bannerUrl.trim(),
+      loginBgUrl: loginBgUrl.trim() || undefined,
+      bankName: bankName.trim(),
+      accountHolder: accountHolder.trim(),
+      clabe: clabe.trim(),
+      accountNumber: accountNumber.trim(),
+      customActivities: updated,
+    });
+    setSavedNotice('¡Nueva actividad agregada a la libreta escolar!');
+    setTimeout(() => setSavedNotice(null), 3000);
+  };
+
+  const handleRemoveActivity = (idx: number) => {
+    if (activitiesList.length <= 1) {
+      alert('Debe haber al menos una actividad en la libreta diaria.');
+      return;
+    }
+    const updated = activitiesList.filter((_, i) => i !== idx);
+    setActivitiesList(updated);
+    onUpdateSettings({
+      ...settings,
+      name: instName.trim(),
+      logoUrl: logoUrl.trim(),
+      bannerUrl: bannerUrl.trim(),
+      loginBgUrl: loginBgUrl.trim() || undefined,
+      bankName: bankName.trim(),
+      accountHolder: accountHolder.trim(),
+      clabe: clabe.trim(),
+      accountNumber: accountNumber.trim(),
+      customActivities: updated,
+    });
+    setSavedNotice('¡Actividad eliminada de la libreta escolar!');
+    setTimeout(() => setSavedNotice(null), 3000);
+  };
+
+  const handleResetActivities = () => {
+    const defaults = [
+      'Comió toda su comida / porción',
+      'Durmió siesta (sueño reparador)',
+      'Fue al baño / control de esfínteres / cambio de pañal',
+      'Participó en dinámicas, cantos y asamblea',
+      'Hidratación adecuada (bebió agua)',
+      'Juego al aire libre y estimulación motriz',
+    ];
+    setActivitiesList(defaults);
+    onUpdateSettings({
+      ...settings,
+      name: instName.trim(),
+      logoUrl: logoUrl.trim(),
+      bannerUrl: bannerUrl.trim(),
+      loginBgUrl: loginBgUrl.trim() || undefined,
+      bankName: bankName.trim(),
+      accountHolder: accountHolder.trim(),
+      clabe: clabe.trim(),
+      accountNumber: accountNumber.trim(),
+      customActivities: defaults,
+    });
+    setSavedNotice('¡Actividades restauradas a los valores sugeridos!');
+    setTimeout(() => setSavedNotice(null), 3000);
   };
 
   const handleAddEmployeeSubmit = (e: React.FormEvent) => {
@@ -124,6 +266,213 @@ export default function SettingsModule({
             </button>
           </div>
         )}
+      </div>
+
+      {/* SECTION: MODULAR SYSTEM ARCHITECTURE (PERSONALIZACIÓN MODULAR) */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
+        <div className="flex flex-wrap items-center justify-between pb-3 border-b border-slate-100 gap-2">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 rounded-xl bg-purple-50 text-purple-700 border border-purple-200">
+              <Boxes className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm flex items-center gap-2">
+                Arquitectura Modular del Sistema
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200 uppercase tracking-wide">
+                  Personalizable
+                </span>
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Activa o desactiva módulos según las necesidades operativas de tu plantel
+              </p>
+            </div>
+          </div>
+          <span className="text-xs text-slate-500 font-medium">
+            {Object.values(enabledModules).filter(Boolean).length} módulos activos
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3.5 pt-1">
+          {/* 1. LIBRETA DE ACTIVIDADES */}
+          <div
+            className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+              enabledModules.libreta
+                ? 'bg-amber-50/50 border-amber-200 shadow-2xs'
+                : 'bg-slate-50/70 border-slate-200 opacity-70'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                    enabledModules.libreta
+                      ? 'bg-amber-100 text-amber-800 border-amber-300'
+                      : 'bg-slate-200 text-slate-500 border-slate-300'
+                  }`}
+                >
+                  <BookOpen className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-800">Libreta de Actividades</h4>
+                  <span className="text-[10px] text-slate-400">Bitácora y reportes diarios</span>
+                </div>
+              </div>
+
+              {/* Toggle switch button */}
+              <button
+                type="button"
+                onClick={() => handleToggleModule('libreta')}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  enabledModules.libreta ? 'bg-amber-500' : 'bg-slate-300'
+                }`}
+                title={enabledModules.libreta ? 'Desactivar módulo' : 'Activar módulo'}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    enabledModules.libreta ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Bitácora diaria con estados de ánimo, rutinas cumplidas, observaciones y firma de enterado de los tutores.
+            </p>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-slate-500">Estado:</span>
+              <span
+                className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                  enabledModules.libreta
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {enabledModules.libreta ? 'Habilitado' : 'Deshabilitado'}
+              </span>
+            </div>
+          </div>
+
+          {/* 2. CONTABILIDAD Y COLEGIATURAS */}
+          <div
+            className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+              enabledModules.contabilidad
+                ? 'bg-emerald-50/50 border-emerald-200 shadow-2xs'
+                : 'bg-slate-50/70 border-slate-200 opacity-70'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                    enabledModules.contabilidad
+                      ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                      : 'bg-slate-200 text-slate-500 border-slate-300'
+                  }`}
+                >
+                  <Receipt className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-800">Contabilidad</h4>
+                  <span className="text-[10px] text-slate-400">Colegiaturas y cobros</span>
+                </div>
+              </div>
+
+              {/* Toggle switch button */}
+              <button
+                type="button"
+                onClick={() => handleToggleModule('contabilidad')}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  enabledModules.contabilidad ? 'bg-emerald-600' : 'bg-slate-300'
+                }`}
+                title={enabledModules.contabilidad ? 'Desactivar módulo' : 'Activar módulo'}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    enabledModules.contabilidad ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Control de cuotas mensuales, vencimientos, estados de pago y botón de pago rápido en entregas.
+            </p>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-slate-500">Estado:</span>
+              <span
+                className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                  enabledModules.contabilidad
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {enabledModules.contabilidad ? 'Habilitado' : 'Deshabilitado'}
+              </span>
+            </div>
+          </div>
+
+          {/* 3. AULAS Y SALAS */}
+          <div
+            className={`p-4 rounded-2xl border transition-all flex flex-col justify-between space-y-3 ${
+              enabledModules.aulas
+                ? 'bg-amber-50/50 border-yellow-200 shadow-2xs'
+                : 'bg-slate-50/70 border-slate-200 opacity-70'
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="flex items-center gap-2.5">
+                <div
+                  className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 border ${
+                    enabledModules.aulas
+                      ? 'bg-yellow-100 text-yellow-800 border-yellow-300'
+                      : 'bg-slate-200 text-slate-500 border-slate-300'
+                  }`}
+                >
+                  <School className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-bold text-xs text-slate-800">Aulas y Salas</h4>
+                  <span className="text-[10px] text-slate-400">Cupos y distribución</span>
+                </div>
+              </div>
+
+              {/* Toggle switch button */}
+              <button
+                type="button"
+                onClick={() => handleToggleModule('aulas')}
+                className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  enabledModules.aulas ? 'bg-amber-500' : 'bg-slate-300'
+                }`}
+                title={enabledModules.aulas ? 'Desactivar módulo' : 'Activar módulo'}
+              >
+                <span
+                  className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                    enabledModules.aulas ? 'translate-x-5' : 'translate-x-0'
+                  }`}
+                />
+              </button>
+            </div>
+
+            <p className="text-[11px] text-slate-500 leading-relaxed">
+              Administración de salas, capacidad máxima de alumnos, cálculo de ocupación y asignación de grupos.
+            </p>
+
+            <div className="pt-2 border-t border-slate-200/60 flex items-center justify-between text-[11px]">
+              <span className="font-semibold text-slate-500">Estado:</span>
+              <span
+                className={`font-bold px-2 py-0.5 rounded-full text-[10px] ${
+                  enabledModules.aulas
+                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                    : 'bg-slate-200 text-slate-600'
+                }`}
+              >
+                {enabledModules.aulas ? 'Habilitado' : 'Deshabilitado'}
+              </span>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* SECTION 1: INSTITUTION IDENTITY & WALLPAPERS */}
@@ -347,7 +696,86 @@ export default function SettingsModule({
         </div>
       </div>
 
-      {/* SECTION 3: DATABASE TOOLS & RESET (ONLY IN DEBUG MODE) */}
+      {/* SECTION 3: CUSTOMIZABLE DAILY ACTIVITIES (LIBRETA DE ACTIVIDADES) */}
+      <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
+        <div className="flex flex-wrap justify-between items-center pb-3 border-b border-slate-100 gap-2">
+          <div className="flex items-center gap-2">
+            <BookOpen className="w-4 h-4 text-amber-600" />
+            <div>
+              <h3 className="font-bold text-slate-800 text-sm">
+                Personalización de Actividades Diarias (Libreta Escolar)
+              </h3>
+              <p className="text-[11px] text-slate-400">
+                Configura el catálogo de rutinas que las educadoras marcan en la libreta diaria de los alumnos
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={handleResetActivities}
+            className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer border border-slate-200"
+            title="Restablecer a rutinas recomendadas"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-slate-500" />
+            <span>Valores sugeridos</span>
+          </button>
+        </div>
+
+        {/* Input to add a new custom activity */}
+        <form onSubmit={handleAddActivity} className="flex gap-2">
+          <div className="relative flex-1">
+            <input
+              type="text"
+              value={newActivityInput}
+              onChange={(e) => setNewActivityInput(e.target.value)}
+              placeholder="Nueva actividad (ej. Aprendió vocabulario nuevo en inglés, Lavado de dientes)..."
+              className="w-full pl-8 pr-3 py-2 bg-[#FAF7F5] border border-slate-200 rounded-xl text-xs outline-none focus:ring-2 focus:ring-amber-200 text-slate-800 font-medium"
+            />
+            <ListChecks className="w-4 h-4 text-slate-400 absolute left-2.5 top-2.5" />
+          </div>
+          <button
+            type="submit"
+            className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 transition cursor-pointer shadow-2xs shrink-0"
+          >
+            <Plus className="w-4 h-4" />
+            <span>Agregar</span>
+          </button>
+        </form>
+
+        {/* List of current activities */}
+        <div className="space-y-2 pt-1">
+          <span className="text-[11px] font-bold text-slate-500 block">
+            Actividades activas ({activitiesList.length}):
+          </span>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {activitiesList.map((item, idx) => (
+              <div
+                key={idx}
+                className="p-2.5 rounded-xl bg-[#FAF7F5] border border-slate-200 flex items-center justify-between gap-2 group hover:border-slate-300 transition"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="w-5 h-5 rounded-full bg-amber-100 text-amber-800 text-[10px] font-bold flex items-center justify-center shrink-0">
+                    {idx + 1}
+                  </span>
+                  <span className="text-xs font-semibold text-slate-700 truncate" title={item}>
+                    {item}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveActivity(idx)}
+                  className="p-1 text-slate-300 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition cursor-pointer shrink-0"
+                  title="Eliminar actividad de la libreta"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* SECTION 4: DATABASE TOOLS & RESET (ONLY IN DEBUG MODE) */}
       {isDebugMode && (
         <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4 animate-fadeIn">
           <div className="flex items-center gap-2 pb-3 border-b border-slate-100">

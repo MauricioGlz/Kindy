@@ -9,8 +9,19 @@ import {
   AttendanceLog,
   InstitutionSettings,
   TrustedContactItem,
+  ActivityLog,
+  MoodType,
 } from '../types.ts';
 import { generateQrCryptoKey } from '../utils/qrSecurity.ts';
+
+export const DEFAULT_ACTIVITIES: string[] = [
+  'Comió toda su comida / porción',
+  'Durmió siesta (sueño reparador)',
+  'Fue al baño / control de esfínteres / cambio de pañal',
+  'Participó en dinámicas, cantos y asamblea',
+  'Hidratación adecuada (bebió agua)',
+  'Juego al aire libre y estimulación motriz',
+];
 
 let dbInstance: Database | null = null;
 let isInitialized = false;
@@ -174,7 +185,7 @@ const INITIAL_STUDENTS: Student[] = [
       { name: 'Patricia Marín', relation: 'Abuela', phone: '+52 55 2211 4433', qrKey: 'KND-FAM-PATR-67A1-2026' },
       { name: 'Mario Gil', relation: 'Tío', phone: '+52 55 6677 8899', qrKey: 'KND-FAM-MARI-23C5-2026' },
     ],
-    photo: 'https://images.unsplash.com/photo-1595454223600-91fbdd77e584?w=300',
+    photo: 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=300',
     securityPin: '112233',
     email: 'lucia.gil@ejemplo.com',
     birthdate: '2024-03-20',
@@ -245,6 +256,14 @@ const INITIAL_SETTINGS: InstitutionSettings = {
   accountHolder: 'Kindy Montessori S.C.',
   clabe: '012 180 01548293019 4',
   accountNumber: '1548293019',
+  customActivities: DEFAULT_ACTIVITIES,
+  enabledModules: {
+    libreta: true,
+    contabilidad: true,
+    aulas: true,
+    profesores: true,
+    documentos: true,
+  },
 };
 
 let cachedWasmBinary: ArrayBuffer | null = null;
@@ -277,6 +296,7 @@ export async function initSqlDatabase(): Promise<Database> {
       const uInt8Array = new Uint8Array(JSON.parse(savedData));
       dbInstance = new SQL.Database(uInt8Array);
       runMigrations(dbInstance);
+      persistDb();
       isInitialized = true;
       return dbInstance;
     } catch (e) {
@@ -305,6 +325,30 @@ function runMigrations(db: Database) {
   } catch {}
   try {
     db.run(`ALTER TABLE attendance_logs ADD COLUMN qr_key TEXT;`);
+  } catch {}
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_id INTEGER NOT NULL,
+        date TEXT NOT NULL,
+        mood TEXT NOT NULL,
+        completed_activities TEXT NOT NULL,
+        notes TEXT,
+        parent_acknowledged INTEGER DEFAULT 0,
+        acknowledged_by TEXT,
+        acknowledged_at TEXT,
+        updated_at TEXT,
+        UNIQUE(student_id, date)
+      );
+    `);
+  } catch {}
+  try {
+    db.run(`
+      UPDATE students 
+      SET photo = 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=300'
+      WHERE id = 4 OR photo LIKE '%1595454223600%' OR name LIKE '%Sofía Herrera%';
+    `);
   } catch {}
 }
 
@@ -389,6 +433,20 @@ function createTables(db: Database) {
       qr_key TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS activity_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      student_id INTEGER NOT NULL,
+      date TEXT NOT NULL,
+      mood TEXT NOT NULL,
+      completed_activities TEXT NOT NULL,
+      notes TEXT,
+      parent_acknowledged INTEGER DEFAULT 0,
+      acknowledged_by TEXT,
+      acknowledged_at TEXT,
+      updated_at TEXT,
+      UNIQUE(student_id, date)
+    );
+
     CREATE TABLE IF NOT EXISTS settings (
       key TEXT PRIMARY KEY,
       value TEXT
@@ -469,6 +527,30 @@ function seedInitialData(db: Database) {
     INSERT INTO attendance_logs (student_id, student_name, authorized_person, tutor_pin, action_type, timestamp, date, qr_key)
     VALUES (4, 'Sofía Herrera Gil', 'Patricia Marín (Abuela)', '112233', 'recepcion', '08:20 AM', '2026-09-17', 'KND-FAM-PATR-67A1-2026');
   `);
+
+  // Seed initial Activity Logs
+  const sampleActivities1 = JSON.stringify([
+    'Comió toda su comida / porción',
+    'Durmió siesta (sueño reparador)',
+    'Participó en dinámicas, cantos y asamblea',
+    'Hidratación adecuada (bebió agua)',
+  ]);
+  const sampleActivities2 = JSON.stringify([
+    'Comió toda su comida / porción',
+    'Fue al baño / control de esfínteres / cambio de pañal',
+    'Juego al aire libre y estimulación motriz',
+  ]);
+  const todayDateStr = new Date().toISOString().split('T')[0];
+  db.run(
+    `INSERT INTO activity_logs (student_id, date, mood, completed_activities, notes, parent_acknowledged, acknowledged_by, acknowledged_at, updated_at)
+     VALUES (?, ?, 'feliz', ?, 'Lucas tuvo un excelente día. Participó activamente en la asamblea y compartió sus bloques de construcción.', 1, 'Roberto Soto Alanís (Padre)', '14:20', '13:00')`,
+    [1, todayDateStr, sampleActivities1]
+  );
+  db.run(
+    `INSERT INTO activity_logs (student_id, date, mood, completed_activities, notes, parent_acknowledged, acknowledged_by, acknowledged_at, updated_at)
+     VALUES (?, ?, 'feliz', ?, 'Mateo estuvo muy juguetón en el recreo y durmió su siesta de 45 minutos sin problemas.', 0, NULL, NULL, '13:15')`,
+    [2, todayDateStr, sampleActivities2]
+  );
 
   // Seed Settings
   db.run(`INSERT INTO settings (key, value) VALUES ('institution', ?)`, [
@@ -870,6 +952,12 @@ export async function sqlAddDocument(doc: Omit<DocumentItem, 'id'>): Promise<Doc
   return { ...doc, id };
 }
 
+export async function sqlDeleteDocument(id: number): Promise<void> {
+  const db = await initSqlDatabase();
+  db.run(`DELETE FROM documents WHERE id = ?`, [id]);
+  persistDb();
+}
+
 export async function sqlGetAttendanceLogs(): Promise<AttendanceLog[]> {
   const db = await initSqlDatabase();
   const res = db.exec(`SELECT * FROM attendance_logs ORDER BY id DESC LIMIT 50`);
@@ -899,7 +987,20 @@ export async function sqlGetSettings(): Promise<InstitutionSettings> {
   const res = db.exec(`SELECT value FROM settings WHERE key = 'institution'`);
   if (res.length && res[0].values.length) {
     try {
-      return JSON.parse(res[0].values[0][0] as string);
+      const parsed: InstitutionSettings = JSON.parse(res[0].values[0][0] as string);
+      if (!parsed.customActivities || parsed.customActivities.length === 0) {
+        parsed.customActivities = DEFAULT_ACTIVITIES;
+      }
+      if (!parsed.enabledModules) {
+        parsed.enabledModules = {
+          libreta: true,
+          contabilidad: true,
+          aulas: true,
+          profesores: true,
+          documentos: true,
+        };
+      }
+      return parsed;
     } catch (e) {
       console.error(e);
     }
@@ -912,6 +1013,155 @@ export async function sqlSaveSettings(settings: InstitutionSettings): Promise<vo
   db.run(`INSERT OR REPLACE INTO settings (key, value) VALUES ('institution', ?)`, [
     JSON.stringify(settings),
   ]);
+  persistDb();
+}
+
+export async function sqlGetAllActivityLogs(): Promise<ActivityLog[]> {
+  const db = await initSqlDatabase();
+  const res = db.exec(`SELECT * FROM activity_logs ORDER BY date DESC, id DESC`);
+  if (!res.length) return [];
+  const columns = res[0].columns;
+  return res[0].values.map((row) => {
+    const obj: any = {};
+    columns.forEach((col, i) => {
+      obj[col] = row[i];
+    });
+    let activities: string[] = [];
+    try {
+      activities = obj.completed_activities ? JSON.parse(obj.completed_activities) : [];
+    } catch {
+      activities = [];
+    }
+    return {
+      id: obj.id,
+      studentId: obj.student_id,
+      date: obj.date,
+      mood: (obj.mood || 'feliz') as MoodType,
+      completedActivities: activities,
+      notes: obj.notes || '',
+      parentAcknowledged: obj.parent_acknowledged === 1,
+      acknowledgedBy: obj.acknowledged_by || null,
+      acknowledgedAt: obj.acknowledged_at || null,
+      updatedAt: obj.updated_at || null,
+    };
+  });
+}
+
+export async function sqlGetActivityLog(studentId: number, date: string): Promise<ActivityLog | null> {
+  const db = await initSqlDatabase();
+  const res = db.exec(
+    `SELECT * FROM activity_logs WHERE student_id = ? AND date = ? LIMIT 1`,
+    [studentId, date]
+  );
+  if (!res.length || !res[0].values.length) return null;
+  const columns = res[0].columns;
+  const obj: any = {};
+  columns.forEach((col, i) => {
+    obj[col] = res[0].values[0][i];
+  });
+  let activities: string[] = [];
+  try {
+    activities = obj.completed_activities ? JSON.parse(obj.completed_activities) : [];
+  } catch {
+    activities = [];
+  }
+  return {
+    id: obj.id,
+    studentId: obj.student_id,
+    date: obj.date,
+    mood: (obj.mood || 'feliz') as MoodType,
+    completedActivities: activities,
+    notes: obj.notes || '',
+    parentAcknowledged: obj.parent_acknowledged === 1,
+    acknowledgedBy: obj.acknowledged_by || null,
+    acknowledgedAt: obj.acknowledged_at || null,
+    updatedAt: obj.updated_at || null,
+  };
+}
+
+export async function sqlSaveActivityLog(log: Omit<ActivityLog, 'id'> & { id?: number }): Promise<void> {
+  const db = await initSqlDatabase();
+  const activitiesJson = JSON.stringify(log.completedActivities || []);
+  const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  const existing = db.exec(
+    `SELECT id FROM activity_logs WHERE student_id = ? AND date = ? LIMIT 1`,
+    [log.studentId, log.date]
+  );
+
+  if (existing.length && existing[0].values.length) {
+    const existingId = existing[0].values[0][0];
+    db.run(
+      `UPDATE activity_logs SET
+         mood = ?,
+         completed_activities = ?,
+         notes = ?,
+         parent_acknowledged = ?,
+         acknowledged_by = ?,
+         acknowledged_at = ?,
+         updated_at = ?
+       WHERE id = ?`,
+      [
+        log.mood,
+        activitiesJson,
+        log.notes || '',
+        log.parentAcknowledged ? 1 : 0,
+        log.acknowledgedBy || null,
+        log.acknowledgedAt || null,
+        nowStr,
+        existingId,
+      ]
+    );
+  } else {
+    db.run(
+      `INSERT INTO activity_logs (student_id, date, mood, completed_activities, notes, parent_acknowledged, acknowledged_by, acknowledged_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        log.studentId,
+        log.date,
+        log.mood,
+        activitiesJson,
+        log.notes || '',
+        log.parentAcknowledged ? 1 : 0,
+        log.acknowledgedBy || null,
+        log.acknowledgedAt || null,
+        nowStr,
+      ]
+    );
+  }
+  persistDb();
+}
+
+export async function sqlToggleAcknowledgeActivityLog(
+  studentId: number,
+  date: string,
+  acknowledgedBy: string
+): Promise<void> {
+  const db = await initSqlDatabase();
+  const res = db.exec(
+    `SELECT parent_acknowledged, id FROM activity_logs WHERE student_id = ? AND date = ? LIMIT 1`,
+    [studentId, date]
+  );
+  if (!res.length || !res[0].values.length) {
+    // If not existing yet, create a default record with mood feliz and marked acknowledged
+    const nowStr = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    db.run(
+      `INSERT INTO activity_logs (student_id, date, mood, completed_activities, notes, parent_acknowledged, acknowledged_by, acknowledged_at, updated_at)
+       VALUES (?, ?, 'feliz', '[]', '', 1, ?, ?, ?)`,
+      [studentId, date, acknowledgedBy, nowStr, nowStr]
+    );
+  } else {
+    const current = Number(res[0].values[0][0]);
+    const logId = res[0].values[0][1];
+    const nextVal = current === 1 ? 0 : 1;
+    const timeStr = nextVal === 1 ? new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : null;
+    const byPerson = nextVal === 1 ? acknowledgedBy : null;
+
+    db.run(
+      `UPDATE activity_logs SET parent_acknowledged = ?, acknowledged_by = ?, acknowledged_at = ? WHERE id = ?`,
+      [nextVal, byPerson, timeStr, logId]
+    );
+  }
   persistDb();
 }
 
@@ -931,3 +1181,4 @@ export async function sqlResetDatabase(): Promise<void> {
 
 export const sqlUpdateSettings = sqlSaveSettings;
 export const sqlRawQuery = sqlRunRawQuery;
+export const sqlExecuteArbitrary = sqlRunRawQuery;

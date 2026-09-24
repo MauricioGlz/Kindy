@@ -5,31 +5,38 @@ import { sqlExecuteArbitrary } from '../db/sqlEngine.ts';
 interface SqlConsoleModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onRefreshParent: () => void;
+  onRefreshParent?: () => void;
+  onRefreshAppState?: () => void;
 }
 
 export default function SqlConsoleModal({
   isOpen,
   onClose,
   onRefreshParent,
+  onRefreshAppState,
 }: SqlConsoleModalProps) {
   const [query, setQuery] = useState(
     'SELECT id, name, classroom, tuition_status, tuition_amount, parent_qr_key FROM students LIMIT 10;'
   );
   const [results, setResults] = useState<{ columns: string[]; values: any[][] }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleRunQuery = () => {
+  const handleRunQuery = async () => {
     setError(null);
+    setLoading(true);
     try {
-      const res = sqlExecuteArbitrary(query);
+      const res = await sqlExecuteArbitrary(query);
       setResults(res);
-      onRefreshParent();
+      if (onRefreshParent) onRefreshParent();
+      if (onRefreshAppState) onRefreshAppState();
     } catch (err: any) {
       setError(err.message || 'Error al ejecutar consulta SQL');
       setResults(null);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -83,9 +90,15 @@ export default function SqlConsoleModal({
             </span>
             <button
               onClick={handleRunQuery}
-              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
+              disabled={loading}
+              className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition cursor-pointer"
             >
-              <Play className="w-3.5 h-3.5 fill-current" /> Ejecutar Consulta
+              {loading ? (
+                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <Play className="w-3.5 h-3.5 fill-current" />
+              )}
+              {loading ? 'Ejecutando...' : 'Ejecutar Consulta'}
             </button>
           </div>
           <textarea

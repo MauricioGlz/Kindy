@@ -19,7 +19,8 @@ import QrPassModal from './QrPassModal.tsx';
 interface StudentsModuleProps {
   students: Student[];
   classrooms: Classroom[];
-  onAddStudent: (std: Omit<Student, 'id'>) => Promise<void> | void;
+  institutionName?: string;
+  onAddStudent: (std: Omit<Student, 'id'>, docPayloads?: { name: string; type: 'pdf' | 'img' }[]) => Promise<void> | void;
   onUpdateStudent: (std: Student) => Promise<void> | void;
   onDeleteStudent: (id: number) => Promise<void> | void;
 }
@@ -27,6 +28,7 @@ interface StudentsModuleProps {
 export default function StudentsModule({
   students,
   classrooms,
+  institutionName = 'Kínder Creativo',
   onAddStudent,
   onUpdateStudent,
   onDeleteStudent,
@@ -144,6 +146,9 @@ export default function StudentsModule({
         bloodType: formBloodType,
         father: formFather,
         mother: formMother,
+        email: 'familia@colegio.edu.mx',
+        birthdate: '2022-01-01',
+        enrollmentDate: new Date().toISOString().split('T')[0],
         phone: formPhone,
         emergencyPhone: formEmergencyPhone,
         classroom: formClassroom,
@@ -243,6 +248,9 @@ export default function StudentsModule({
                 <img
                   src={std.photo}
                   alt={std.name}
+                  onError={(e) => {
+                    e.currentTarget.src = 'https://images.unsplash.com/photo-1516627145497-ae6968895b74?w=300';
+                  }}
                   className="w-14 h-14 rounded-2xl object-cover border-2 border-slate-100 shadow-2xs"
                 />
                 <div>
@@ -538,6 +546,7 @@ export default function StudentsModule({
           student={selectedStudentForQr}
           isOpen={Boolean(selectedStudentForQr)}
           onClose={() => setSelectedStudentForQr(null)}
+          institutionName={institutionName}
         />
       )}
     </div>

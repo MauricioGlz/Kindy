@@ -39,3 +39,70 @@
 .animate-scaleIn {
   animation: scaleIn 0.22s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
+
+/* Print optimizations for digital credentials and report cards */
+@media print {
+  @page {
+    size: portrait;
+    margin: 8mm;
+  }
+
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+    color-adjust: exact !important;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: auto !important;
+  }
+
+  /* When printing from main window with credential active, hide background elements */
+  body.printing-credential #root > div > *:not(main),
+  body.printing-credential #root > div > main > *:not(#view-module-students),
+  body.printing-credential #view-module-students > *:not(#credential-modal-backdrop),
+  body.printing-credential .print-hide,
+  .print-hide {
+    display: none !important;
+  }
+
+  /* Modal container styling during print */
+  #credential-modal-backdrop {
+    position: static !important;
+    background: transparent !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    width: 100% !important;
+    min-height: 100vh !important;
+  }
+
+  #credential-modal-wrapper {
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    margin: 0 auto !important;
+    max-width: 420px !important;
+    width: 100% !important;
+    background: transparent !important;
+  }
+
+  #printable-pass-card {
+    border: 2px dashed #f472b6 !important;
+    background: #ffffff !important;
+    border-radius: 24px !important;
+    padding: 24px !important;
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+  }
+}
+

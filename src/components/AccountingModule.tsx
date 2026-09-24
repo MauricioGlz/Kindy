@@ -4,6 +4,7 @@ import { Student } from '../types.ts';
 
 interface AccountingModuleProps {
   students: Student[];
+  onToggleTuitionStatus?: (studentId: number) => Promise<void> | void;
 }
 
 export default function AccountingModule({ students }: AccountingModuleProps) {

@@ -18,6 +18,7 @@ import {
   sqlToggleTuitionStatus,
   sqlPayTuition,
   sqlAddDocument,
+  sqlDeleteDocument,
   sqlAddTeacher,
   sqlUpdateTeacher,
   sqlDeleteTeacher,
@@ -25,6 +26,9 @@ import {
   sqlAddEmployee,
   sqlDeleteEmployee,
   sqlResetDatabase,
+  sqlGetAllActivityLogs,
+  sqlSaveActivityLog,
+  sqlToggleAcknowledgeActivityLog,
 } from './db/sqlEngine.ts';
 import {
   Student,
@@ -34,6 +38,7 @@ import {
   DocumentItem,
   AttendanceLog,
   InstitutionSettings,
+  ActivityLog,
   ModuleKey,
 } from './types.ts';
 
@@ -47,6 +52,7 @@ import AccountingModule from './components/AccountingModule.tsx';
 import ColegiaturasModule from './components/ColegiaturasModule.tsx';
 import DocumentsModule from './components/DocumentsModule.tsx';
 import TeachersModule from './components/TeachersModule.tsx';
+import ActivityBookModule from './components/ActivityBookModule.tsx';
 import SettingsModule from './components/SettingsModule.tsx';
 import SqlConsoleModal from './components/SqlConsoleModal.tsx';
 import DebugAuthModal from './components/DebugAuthModal.tsx';
@@ -69,6 +75,7 @@ export default function App() {
   const [teachers, setTeachers] = useState<Teacher[]>([]);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [attendanceLogs, setAttendanceLogs] = useState<AttendanceLog[]>([]);
+  const [activityLogs, setActivityLogs] = useState<ActivityLog[]>([]);
   const [settings, setSettings] = useState<InstitutionSettings>({
     name: 'Kinder Creativo',
     logoUrl: 'https://images.unsplash.com/photo-1577896851231-70ef18881754?w=160',
@@ -82,7 +89,7 @@ export default function App() {
   // Initialize and reload SQLite Database
   const reloadDataFromSql = async () => {
     try {
-      const [s, c, e, t, d, a, st] = await Promise.all([
+      const [s, c, e, t, d, a, st, act] = await Promise.all([
         sqlGetStudents(),
         sqlGetClassrooms(),
         sqlGetEmployees(),
@@ -90,6 +97,7 @@ export default function App() {
         sqlGetDocuments(),
         sqlGetAttendanceLogs(),
         sqlGetSettings(),
+        sqlGetAllActivityLogs(),
       ]);
       setStudents(s);
       setClassrooms(c);
@@ -98,6 +106,7 @@ export default function App() {
       setDocuments(d);
       setAttendanceLogs(a);
       setSettings(st);
+      setActivityLogs(act);
     } catch (e: any) {
       console.error('Error reading from SQLite:', e);
     }
@@ -115,6 +124,25 @@ export default function App() {
         setDbLoading(false);
       });
   }, []);
+
+  // Redirect if current view becomes disabled in settings
+  useEffect(() => {
+    if (currentView === 'libreta' && settings.enabledModules?.libreta === false) {
+      setCurrentView('modules');
+    }
+    if ((currentView === 'contabilidad' || currentView === 'colegiaturas') && settings.enabledModules?.contabilidad === false) {
+      setCurrentView('modules');
+    }
+    if (currentView === 'aulas' && settings.enabledModules?.aulas === false) {
+      setCurrentView('modules');
+    }
+    if (currentView === 'documentos' && settings.enabledModules?.documentos === false) {
+      setCurrentView('modules');
+    }
+    if (currentView === 'profesores' && settings.enabledModules?.profesores === false) {
+      setCurrentView('modules');
+    }
+  }, [currentView, settings.enabledModules]);
 
   // Handlers
   const handleLoginSuccess = (emp: Employee) => {
@@ -201,6 +229,11 @@ export default function App() {
     await reloadDataFromSql();
   };
 
+  const handleDeleteDocument = async (id: number) => {
+    await sqlDeleteDocument(id);
+    await reloadDataFromSql();
+  };
+
   const handleAddTeacher = async (teacher: Omit<Teacher, 'id'>) => {
     await sqlAddTeacher(teacher);
     await reloadDataFromSql();
@@ -228,6 +261,20 @@ export default function App() {
 
   const handleDeleteEmployee = async (id: number) => {
     await sqlDeleteEmployee(id);
+    await reloadDataFromSql();
+  };
+
+  const handleSaveActivityLog = async (log: Omit<ActivityLog, 'id'> & { id?: number }) => {
+    await sqlSaveActivityLog(log);
+    await reloadDataFromSql();
+  };
+
+  const handleToggleAcknowledgeActivityLog = async (
+    studentId: number,
+    date: string,
+    acknowledgedBy: string
+  ) => {
+    await sqlToggleAcknowledgeActivityLog(studentId, date, acknowledgedBy);
     await reloadDataFromSql();
   };
 
@@ -300,6 +347,7 @@ export default function App() {
     aulas: 'Aulas y Salas',
     documentos: 'Administrador de Documentos',
     entregas: 'Entregas y Recepciones por Código QR',
+    libreta: 'Libreta de Actividades',
     ajustes: 'Ajustes del Sistema',
   };
 
@@ -353,6 +401,7 @@ export default function App() {
           <StudentsModule
             students={students}
             classrooms={classrooms}
+            institutionName={settings.name}
             onAddStudent={handleAddStudent}
             onUpdateStudent={handleUpdateStudent}
             onDeleteStudent={handleDeleteStudent}
@@ -363,9 +412,11 @@ export default function App() {
           <DeliveryModule
             students={students}
             attendanceLogs={attendanceLogs}
+            activityLogs={activityLogs}
             settings={settings}
             onRecordAction={handleRecordAction}
             onPayTuition={handlePayTuition}
+            onToggleAcknowledgeActivityLog={handleToggleAcknowledgeActivityLog}
           />
         )}
 
@@ -391,7 +442,9 @@ export default function App() {
           <DocumentsModule
             students={students}
             documents={documents}
+            institutionName={settings.name}
             onUploadDocument={handleUploadDocument}
+            onDeleteDocument={handleDeleteDocument}
           />
         )}
 
@@ -402,6 +455,17 @@ export default function App() {
             onAddTeacher={handleAddTeacher}
             onUpdateTeacher={handleUpdateTeacher}
             onDeleteTeacher={handleDeleteTeacher}
+          />
+        )}
+
+        {currentView === 'libreta' && (
+          <ActivityBookModule
+            students={students}
+            classrooms={classrooms}
+            settings={settings}
+            activityLogs={activityLogs}
+            onSaveLog={handleSaveActivityLog}
+            onToggleAcknowledge={handleToggleAcknowledgeActivityLog}
           />
         )}
 

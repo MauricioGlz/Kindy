@@ -7,6 +7,8 @@ interface ClassroomsModuleProps {
   students: Student[];
   onSaveClassroom: (room: Omit<Classroom, 'id'> & { id?: number }) => Promise<void> | void;
   onDeleteClassroom: (id: number) => Promise<void> | void;
+  onAssignStudentToRoom?: (studentId: number, roomName: string) => Promise<void> | void;
+  onRemoveStudentFromRoom?: (studentId: number) => Promise<void> | void;
 }
 
 export default function ClassroomsModule({

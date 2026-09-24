@@ -1,43 +1,9 @@
-export type ModuleKey =
-  | 'home'
-  | 'alumnos'
-  | 'entregas'
-  | 'colegiaturas'
-  | 'aulas'
-  | 'contabilidad'
-  | 'documentos'
-  | 'profesores'
-  | 'ajustes';
-
 export interface TrustedContactItem {
+  id?: string;
   name: string;
-  relation: string;
+  relation: string; // "Abuela", "Tío", "Tutor", "Hermana", etc.
   phone?: string;
-  qrKey: string;
-}
-
-export interface Student {
-  id: number;
-  name: string;
-  age: number;
-  bloodType: string;
-  father: string;
-  mother: string;
-  phone: string;
-  emergencyPhone: string;
-  classroom: string;
-  photo: string;
-  delivered: boolean;
-  lastActionTime: string;
-  securityPin: string;
-  paymentDate: string;
-  tuitionStatus: 'Pendiente' | 'Pagado' | 'Vencido';
-  tuitionAmount: number;
-  hasScholarship: boolean;
-  scholarshipPercent: number;
-  trustedContacts: string[];
-  parentQrKey: string;
-  trustedFamilyList: TrustedContactItem[];
+  qrKey: string; // Llave criptográfica única
 }
 
 export interface GuardianQrPayload {
@@ -53,12 +19,40 @@ export interface GuardianQrPayload {
   checksum: string;
 }
 
+export interface Student {
+  id: number;
+  name: string;
+  father: string;
+  mother: string;
+  age?: number;
+  bloodType?: string;
+  phone?: string;
+  emergencyPhone?: string;
+  trustedContacts: string[];
+  trustedFamilyList?: TrustedContactItem[];
+  photo: string;
+  parentQrKey: string; // Llave única de cifrado para los padres
+  securityPin?: string; // Legado opcional
+  email?: string;
+  birthdate?: string;
+  enrollmentDate?: string;
+  paymentDate: string;
+  hasScholarship: boolean;
+  scholarshipPercent: number;
+  classroom: string;
+  delivered: boolean; // true = en plantel, false = fuera
+  lastActionTime: string | null;
+  tuitionAmount: number;
+  tuitionStatus: 'Pagado' | 'Pendiente' | 'Vencido';
+}
+
 export interface Classroom {
   id: number;
   name: string;
   capacity: number;
-  color: string;
-  ageRange: string;
+  description?: string;
+  color?: string;
+  ageRange?: string;
   teacherName?: string;
 }
 
@@ -66,54 +60,91 @@ export interface Employee {
   id: number;
   name: string;
   role: string;
-  pin: string;
   photo: string;
-  shift: string;
+  pin: string;
 }
 
 export interface Teacher {
   id: number;
   name: string;
-  specialty: string;
   classroom: string;
-  phone: string;
   photo: string;
+  phone: string;
+  specialty: string;
 }
 
 export interface DocumentItem {
   id: number;
   studentId: number;
-  studentName: string;
+  studentName?: string;
   name: string;
+  size?: string;
   type: 'pdf' | 'img';
-  uploadDate: string;
-  status: 'Completo' | 'Pendiente';
-  fileUrl?: string;
+  date?: string;
+  uploadDate?: string;
+  status?: string;
+  url?: string;
+  category?: string;
+  notes?: string;
 }
 
 export interface AttendanceLog {
   id: number;
   studentId: number;
   studentName: string;
+  authorizedPerson: string; // Nombre del padre o familiar que presentó el QR
+  tutorPin?: string; // Legado opcional
   actionType: 'recepcion' | 'entrega';
   timestamp: string;
   date: string;
-  tutorPin?: string;
-  authorizedPerson?: string;
-  qrKey?: string;
+  qrKey?: string; // Llave criptográfica utilizada al escanear
+}
+
+export interface EnabledModulesConfig {
+  libreta: boolean;
+  contabilidad: boolean;
+  aulas: boolean;
+  profesores?: boolean;
+  documentos?: boolean;
 }
 
 export interface InstitutionSettings {
   name: string;
-  directorName: string;
-  address: string;
-  phone: string;
-  email: string;
   logoUrl: string;
+  bannerUrl: string;
+  homeBgUrl?: string;
   loginBgUrl?: string;
-  monthlyTuition: number;
-  bankName: string;
-  accountHolder: string;
-  clabe: string;
-  accountNumber: string;
+  bankName?: string;
+  accountHolder?: string;
+  clabe?: string;
+  accountNumber?: string;
+  customActivities?: string[];
+  enabledModules?: EnabledModulesConfig;
 }
+
+export type MoodType = 'feliz' | 'neutral' | 'lloroso' | 'molesto';
+
+export interface ActivityLog {
+  id?: number;
+  studentId: number;
+  date: string; // YYYY-MM-DD
+  mood: MoodType;
+  completedActivities: string[];
+  notes: string;
+  parentAcknowledged: boolean;
+  acknowledgedBy?: string | null;
+  acknowledgedAt?: string | null;
+  updatedAt?: string;
+}
+
+export type ModuleKey =
+  | 'home'
+  | 'colegiaturas'
+  | 'contabilidad'
+  | 'alumnos'
+  | 'profesores'
+  | 'aulas'
+  | 'documentos'
+  | 'entregas'
+  | 'libreta'
+  | 'ajustes';
