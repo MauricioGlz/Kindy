@@ -8,7 +8,9 @@ import {
   DocumentItem,
   AttendanceLog,
   InstitutionSettings,
+  TrustedContactItem,
 } from '../types.ts';
+import { generateQrCryptoKey } from '../utils/qrSecurity.ts';
 
 let dbInstance: Database | null = null;
 let isInitialized = false;
@@ -93,7 +95,12 @@ const INITIAL_STUDENTS: Student[] = [
     name: 'Lucas Soto Martínez',
     father: 'Roberto Soto Alanís',
     mother: 'Camila Martínez Vega',
+    parentQrKey: 'KND-PAR-LUCA-98F2-2026',
     trustedContacts: ['Rosa Alanís (Abuela)', 'Carlos Soto (Tío)'],
+    trustedFamilyList: [
+      { name: 'Rosa Alanís', relation: 'Abuela', phone: '+52 55 1234 5678', qrKey: 'KND-FAM-ROSA-81B4-2026' },
+      { name: 'Carlos Soto', relation: 'Tío', phone: '+52 55 8765 4321', qrKey: 'KND-FAM-CARL-42E1-2026' },
+    ],
     photo: 'https://images.unsplash.com/photo-1543332164-6e82f355badc?w=300',
     securityPin: '123456',
     email: 'roberto.soto@ejemplo.com',
@@ -113,7 +120,11 @@ const INITIAL_STUDENTS: Student[] = [
     name: 'Mateo Soto Martínez',
     father: 'Roberto Soto Alanís',
     mother: 'Camila Martínez Vega',
+    parentQrKey: 'KND-PAR-MATE-55A3-2026',
     trustedContacts: ['Rosa Alanís (Abuela)'],
+    trustedFamilyList: [
+      { name: 'Rosa Alanís', relation: 'Abuela', phone: '+52 55 1234 5678', qrKey: 'KND-FAM-ROSA-81B4-2026' },
+    ],
     photo: 'https://images.unsplash.com/photo-1503454537195-1dcabb73ffb9?w=300',
     securityPin: '123456',
     email: 'roberto.soto@ejemplo.com',
@@ -133,7 +144,11 @@ const INITIAL_STUDENTS: Student[] = [
     name: 'Emma Castillo Rivas',
     father: 'Javier Castillo León',
     mother: 'Daniela Rivas Paz',
+    parentQrKey: 'KND-PAR-EMMA-72C9-2026',
     trustedContacts: ['Elena Paz (Tía)'],
+    trustedFamilyList: [
+      { name: 'Elena Paz', relation: 'Tía', phone: '+52 55 3344 5566', qrKey: 'KND-FAM-ELEN-99D2-2026' },
+    ],
     photo: 'https://images.unsplash.com/photo-1519238263530-99bdd11df2ea?w=300',
     securityPin: '654321',
     email: 'daniela.rivas@ejemplo.com',
@@ -153,7 +168,12 @@ const INITIAL_STUDENTS: Student[] = [
     name: 'Sofía Herrera Gil',
     father: 'Emilio Herrera Ortiz',
     mother: 'Lucía Gil Marín',
+    parentQrKey: 'KND-PAR-SOFI-31D8-2026',
     trustedContacts: ['Patricia Marín (Abuela)', 'Mario Gil (Tío)'],
+    trustedFamilyList: [
+      { name: 'Patricia Marín', relation: 'Abuela', phone: '+52 55 2211 4433', qrKey: 'KND-FAM-PATR-67A1-2026' },
+      { name: 'Mario Gil', relation: 'Tío', phone: '+52 55 6677 8899', qrKey: 'KND-FAM-MARI-23C5-2026' },
+    ],
     photo: 'https://images.unsplash.com/photo-1595454223600-91fbdd77e584?w=300',
     securityPin: '112233',
     email: 'lucia.gil@ejemplo.com',
@@ -173,7 +193,9 @@ const INITIAL_STUDENTS: Student[] = [
     name: 'Leo Paredes Soto',
     father: 'Gustavo Paredes Blanco',
     mother: 'Ana Soto Gómez',
+    parentQrKey: 'KND-PAR-LEOP-14E7-2026',
     trustedContacts: [],
+    trustedFamilyList: [],
     photo: 'https://images.unsplash.com/photo-1485546246426-74dc88dec4d9?w=300',
     securityPin: '445566',
     email: 'gustavo.paredes@ejemplo.com',
@@ -254,6 +276,7 @@ export async function initSqlDatabase(): Promise<Database> {
     try {
       const uInt8Array = new Uint8Array(JSON.parse(savedData));
       dbInstance = new SQL.Database(uInt8Array);
+      runMigrations(dbInstance);
       isInitialized = true;
       return dbInstance;
     } catch (e) {
@@ -263,10 +286,26 @@ export async function initSqlDatabase(): Promise<Database> {
 
   dbInstance = new SQL.Database();
   createTables(dbInstance);
+  runMigrations(dbInstance);
   seedInitialData(dbInstance);
   persistDb();
   isInitialized = true;
   return dbInstance;
+}
+
+function runMigrations(db: Database) {
+  try {
+    db.run(`ALTER TABLE students ADD COLUMN parent_qr_key TEXT;`);
+  } catch {}
+  try {
+    db.run(`ALTER TABLE students ADD COLUMN trusted_family_list TEXT;`);
+  } catch {}
+  try {
+    db.run(`ALTER TABLE attendance_logs ADD COLUMN authorized_person TEXT;`);
+  } catch {}
+  try {
+    db.run(`ALTER TABLE attendance_logs ADD COLUMN qr_key TEXT;`);
+  } catch {}
 }
 
 function persistDb() {
@@ -288,8 +327,10 @@ function createTables(db: Database) {
       father TEXT NOT NULL,
       mother TEXT NOT NULL,
       trusted_contacts TEXT,
+      trusted_family_list TEXT,
       photo TEXT,
-      security_pin TEXT NOT NULL,
+      parent_qr_key TEXT,
+      security_pin TEXT,
       email TEXT NOT NULL,
       birthdate TEXT,
       enrollment_date TEXT,
@@ -340,10 +381,12 @@ function createTables(db: Database) {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       student_id INTEGER NOT NULL,
       student_name TEXT NOT NULL,
-      tutor_pin TEXT NOT NULL,
+      authorized_person TEXT NOT NULL,
+      tutor_pin TEXT,
       action_type TEXT NOT NULL,
       timestamp TEXT NOT NULL,
-      date TEXT NOT NULL
+      date TEXT NOT NULL,
+      qr_key TEXT
     );
 
     CREATE TABLE IF NOT EXISTS settings (
@@ -382,18 +425,20 @@ function seedInitialData(db: Database) {
   for (const s of INITIAL_STUDENTS) {
     db.run(
       `INSERT INTO students (
-        id, name, father, mother, trusted_contacts, photo, security_pin, email,
+        id, name, father, mother, trusted_contacts, trusted_family_list, photo, parent_qr_key, security_pin, email,
         birthdate, enrollment_date, payment_date, has_scholarship, scholarship_percent,
         classroom, delivered, last_action_time, tuition_amount, tuition_status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         s.id,
         s.name,
         s.father,
         s.mother,
         JSON.stringify(s.trustedContacts),
+        JSON.stringify(s.trustedFamilyList || []),
         s.photo,
-        s.securityPin,
+        s.parentQrKey,
+        s.securityPin || '123456',
         s.email,
         s.birthdate,
         s.enrollmentDate,
@@ -419,10 +464,10 @@ function seedInitialData(db: Database) {
 
   // Seed initial Attendance Logs
   db.run(`
-    INSERT INTO attendance_logs (student_id, student_name, tutor_pin, action_type, timestamp, date)
-    VALUES (3, 'Emma Castillo Rivas', '654321', 'recepcion', '08:15 AM', '2026-09-17');
-    INSERT INTO attendance_logs (student_id, student_name, tutor_pin, action_type, timestamp, date)
-    VALUES (4, 'Sofía Herrera Gil', '112233', 'recepcion', '08:20 AM', '2026-09-17');
+    INSERT INTO attendance_logs (student_id, student_name, authorized_person, tutor_pin, action_type, timestamp, date, qr_key)
+    VALUES (3, 'Emma Castillo Rivas', 'Daniela Rivas Paz (Madre)', '654321', 'recepcion', '08:15 AM', '2026-09-17', 'KND-PAR-EMMA-72C9-2026');
+    INSERT INTO attendance_logs (student_id, student_name, authorized_person, tutor_pin, action_type, timestamp, date, qr_key)
+    VALUES (4, 'Sofía Herrera Gil', 'Patricia Marín (Abuela)', '112233', 'recepcion', '08:20 AM', '2026-09-17', 'KND-FAM-PATR-67A1-2026');
   `);
 
   // Seed Settings
@@ -446,14 +491,42 @@ export async function sqlGetStudents(): Promise<Student[]> {
     columns.forEach((col, i) => {
       obj[col] = row[i];
     });
+
+    const rawContacts: string[] = obj.trusted_contacts ? JSON.parse(obj.trusted_contacts) : [];
+    
+    let familyList: TrustedContactItem[] = [];
+    if (obj.trusted_family_list) {
+      try {
+        familyList = JSON.parse(obj.trusted_family_list);
+      } catch {
+        familyList = [];
+      }
+    }
+    if (!familyList || familyList.length === 0) {
+      familyList = rawContacts.map((c) => {
+        const match = c.match(/^(.*?)\s*\((.*?)\)$/);
+        const name = match ? match[1].trim() : c;
+        const relation = match ? match[2].trim() : 'Familiar';
+        return {
+          name,
+          relation,
+          qrKey: generateQrCryptoKey('FAM', name),
+        };
+      });
+    }
+
+    const parentQr = obj.parent_qr_key || generateQrCryptoKey('PAR', obj.name);
+
     return {
       id: obj.id,
       name: obj.name,
       father: obj.father,
       mother: obj.mother,
-      trustedContacts: obj.trusted_contacts ? JSON.parse(obj.trusted_contacts) : [],
+      parentQrKey: parentQr,
+      trustedContacts: rawContacts,
+      trustedFamilyList: familyList,
       photo: obj.photo,
-      securityPin: obj.security_pin,
+      securityPin: obj.security_pin || '123456',
       email: obj.email,
       birthdate: obj.birthdate,
       enrollmentDate: obj.enrollment_date,
@@ -475,20 +548,38 @@ export async function sqlAddStudent(
 ): Promise<Student> {
   const db = await initSqlDatabase();
   const id = Date.now();
+  const parentQr = student.parentQrKey || generateQrCryptoKey('PAR', student.name);
+  const familyList = (student.trustedFamilyList && student.trustedFamilyList.length > 0)
+    ? student.trustedFamilyList
+    : (student.trustedContacts || []).map((c) => {
+        const match = c.match(/^(.*?)\s*\((.*?)\)$/);
+        const name = match ? match[1].trim() : c;
+        const relation = match ? match[2].trim() : 'Familiar';
+        return {
+          name,
+          relation,
+          qrKey: generateQrCryptoKey('FAM', name),
+        };
+      });
+
+  const contactsArr = familyList.map((f) => `${f.name} (${f.relation})`);
+
   db.run(
     `INSERT INTO students (
-      id, name, father, mother, trusted_contacts, photo, security_pin, email,
+      id, name, father, mother, trusted_contacts, trusted_family_list, photo, parent_qr_key, security_pin, email,
       birthdate, enrollment_date, payment_date, has_scholarship, scholarship_percent,
       classroom, delivered, last_action_time, tuition_amount, tuition_status
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       id,
       student.name,
       student.father,
       student.mother,
-      JSON.stringify(student.trustedContacts),
+      JSON.stringify(contactsArr),
+      JSON.stringify(familyList),
       student.photo,
-      student.securityPin,
+      parentQr,
+      student.securityPin || '123456',
       student.email,
       student.birthdate,
       student.enrollmentDate,
@@ -514,7 +605,7 @@ export async function sqlAddStudent(
   }
 
   persistDb();
-  return { ...student, id };
+  return { ...student, id, parentQrKey: parentQr, trustedFamilyList: familyList, trustedContacts: contactsArr };
 }
 
 export async function sqlAssignStudentClassroom(studentId: number, roomName: string): Promise<void> {
@@ -545,10 +636,26 @@ export async function sqlPayTuition(
 
 export async function sqlUpdateStudent(student: Student): Promise<void> {
   const db = await initSqlDatabase();
+  const parentQr = student.parentQrKey || generateQrCryptoKey('PAR', student.name);
+  const familyList = (student.trustedFamilyList && student.trustedFamilyList.length > 0)
+    ? student.trustedFamilyList
+    : (student.trustedContacts || []).map((c) => {
+        const match = c.match(/^(.*?)\s*\((.*?)\)$/);
+        const name = match ? match[1].trim() : c;
+        const relation = match ? match[2].trim() : 'Familiar';
+        return {
+          name,
+          relation,
+          qrKey: generateQrCryptoKey('FAM', name),
+        };
+      });
+
+  const contactsArr = familyList.map((f) => `${f.name} (${f.relation})`);
+
   db.run(
     `UPDATE students SET
-      name = ?, father = ?, mother = ?, trusted_contacts = ?, photo = ?,
-      security_pin = ?, email = ?, birthdate = ?, enrollment_date = ?,
+      name = ?, father = ?, mother = ?, trusted_contacts = ?, trusted_family_list = ?, photo = ?,
+      parent_qr_key = ?, security_pin = ?, email = ?, birthdate = ?, enrollment_date = ?,
       payment_date = ?, has_scholarship = ?, scholarship_percent = ?,
       classroom = ?, delivered = ?, last_action_time = ?, tuition_amount = ?,
       tuition_status = ?
@@ -557,9 +664,11 @@ export async function sqlUpdateStudent(student: Student): Promise<void> {
       student.name,
       student.father,
       student.mother,
-      JSON.stringify(student.trustedContacts),
+      JSON.stringify(contactsArr),
+      JSON.stringify(familyList),
       student.photo,
-      student.securityPin,
+      parentQr,
+      student.securityPin || '123456',
       student.email,
       student.birthdate,
       student.enrollmentDate,
@@ -588,7 +697,9 @@ export async function sqlRecordStudentAction(
   student: Student,
   actionType: 'recepcion' | 'entrega',
   timeStr: string,
-  dateStr: string
+  dateStr: string,
+  authorizedPerson?: string,
+  qrKey?: string
 ): Promise<void> {
   const db = await initSqlDatabase();
   const newDelivered = actionType === 'recepcion' ? 1 : 0;
@@ -597,10 +708,12 @@ export async function sqlRecordStudentAction(
     timeStr,
     student.id,
   ]);
+  const person = authorizedPerson || [student.father, student.mother].filter(Boolean).join(' / ') || 'Tutor Autorizado';
+  const key = qrKey || student.parentQrKey || 'QR-DEFAULT';
   db.run(
-    `INSERT INTO attendance_logs (student_id, student_name, tutor_pin, action_type, timestamp, date)
-     VALUES (?, ?, ?, ?, ?, ?)`,
-    [student.id, student.name, student.securityPin, actionType, timeStr, dateStr]
+    `INSERT INTO attendance_logs (student_id, student_name, authorized_person, tutor_pin, action_type, timestamp, date, qr_key)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [student.id, student.name, person, student.securityPin || '', actionType, timeStr, dateStr, key]
   );
   persistDb();
 }
@@ -710,6 +823,21 @@ export async function sqlAddTeacher(t: Omit<Teacher, 'id'>): Promise<Teacher> {
   return { ...t, id };
 }
 
+export async function sqlUpdateTeacher(t: Teacher): Promise<void> {
+  const db = await initSqlDatabase();
+  db.run(
+    `UPDATE teachers SET name = ?, classroom = ?, photo = ?, phone = ?, specialty = ? WHERE id = ?`,
+    [t.name, t.classroom, t.photo, t.phone, t.specialty, t.id]
+  );
+  persistDb();
+}
+
+export async function sqlDeleteTeacher(id: number): Promise<void> {
+  const db = await initSqlDatabase();
+  db.run(`DELETE FROM teachers WHERE id = ?`, [id]);
+  persistDb();
+}
+
 export async function sqlGetDocuments(): Promise<DocumentItem[]> {
   const db = await initSqlDatabase();
   const res = db.exec(`SELECT * FROM documents ORDER BY id ASC`);
@@ -756,6 +884,8 @@ export async function sqlGetAttendanceLogs(): Promise<AttendanceLog[]> {
       id: obj.id,
       studentId: obj.student_id,
       studentName: obj.student_name,
+      authorizedPerson: obj.authorized_person || obj.tutor_pin || 'Tutor Autorizado',
+      qrKey: obj.qr_key,
       tutorPin: obj.tutor_pin,
       actionType: obj.action_type as 'recepcion' | 'entrega',
       timestamp: obj.timestamp,

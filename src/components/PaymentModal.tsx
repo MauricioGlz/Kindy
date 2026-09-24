@@ -222,7 +222,7 @@ export default function PaymentModal({
                 <h4 className="text-lg font-bold text-slate-800">¡Pago Registrado con Éxito!</h4>
                 <p className="text-xs text-slate-500 mt-1 max-w-xs mx-auto">
                   La colegiatura de <span className="font-semibold text-slate-700">{student.name}</span> ha sido
-                  actualizada a estado <span className="font-bold text-emerald-600">Pagado</span> en la base de datos SQL.
+                  actualizada a estado <span className="font-bold text-emerald-600">Pagado</span> en el sistema escolar.
                 </p>
               </div>
 

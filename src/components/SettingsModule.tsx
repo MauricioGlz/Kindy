@@ -14,6 +14,7 @@ import {
   CreditCard,
 } from 'lucide-react';
 import { InstitutionSettings, Employee } from '../types.ts';
+import { useDebugMode } from '../context/DebugContext.tsx';
 
 interface SettingsModuleProps {
   settings: InstitutionSettings;
@@ -34,6 +35,7 @@ export default function SettingsModule({
   onOpenSqlConsole,
   onResetDatabase,
 }: SettingsModuleProps) {
+  const { isDebugMode } = useDebugMode();
   const [instName, setInstName] = useState<string>(settings.name);
   const [logoUrl, setLogoUrl] = useState<string>(settings.logoUrl);
   const [bannerUrl, setBannerUrl] = useState<string>(settings.bannerUrl);
@@ -65,7 +67,11 @@ export default function SettingsModule({
       clabe: clabe.trim(),
       accountNumber: accountNumber.trim(),
     });
-    setSavedNotice('¡Ajustes de identidad y cuenta bancaria guardados en SQLite!');
+    setSavedNotice(
+      isDebugMode
+        ? '¡Ajustes de identidad y cuenta bancaria guardados en SQLite!'
+        : '¡Ajustes de identidad y cuenta bancaria guardados exitosamente!'
+    );
     setTimeout(() => setSavedNotice(null), 3500);
   };
 
@@ -104,18 +110,20 @@ export default function SettingsModule({
             <Settings className="w-5 h-5 text-slate-600" /> Ajustes del Sistema y Personalización
           </h2>
           <p className="text-xs text-slate-500">
-            Identidad escolar, fondos de pantalla, gestión de empleados y base de datos SQL
+            Identidad escolar, fondos de pantalla y gestión de empleados{isDebugMode ? ' y base de datos SQL' : ''}
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            id="btn-open-sql-from-settings"
-            onClick={onOpenSqlConsole}
-            className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border border-emerald-300 shadow-2xs cursor-pointer"
-          >
-            <Database className="w-4 h-4 text-emerald-600" /> Consola SQL
-          </button>
-        </div>
+        {isDebugMode && (
+          <div className="flex items-center gap-2 animate-fadeIn">
+            <button
+              id="btn-open-sql-from-settings"
+              onClick={onOpenSqlConsole}
+              className="px-3.5 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-900 rounded-xl text-xs font-bold flex items-center gap-1.5 transition border border-emerald-300 shadow-2xs cursor-pointer"
+            >
+              <Database className="w-4 h-4 text-emerald-600" /> Consola SQL
+            </button>
+          </div>
+        )}
       </div>
 
       {/* SECTION 1: INSTITUTION IDENTITY & WALLPAPERS */}
@@ -339,32 +347,34 @@ export default function SettingsModule({
         </div>
       </div>
 
-      {/* SECTION 3: DATABASE TOOLS & RESET */}
-      <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4">
-        <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-          <Database className="w-4 h-4 text-emerald-600" />
-          <h3 className="font-bold text-slate-800 text-sm">Herramientas de Base de Datos SQLite</h3>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
-          <div>
-            <span className="font-bold text-slate-800 text-xs block">Reestablecer Datos de Demostración</span>
-            <p className="text-[11px] text-slate-400 mt-0.5">
-              Restaura los alumnos de prueba, bitácora de asistencias y aulas a sus valores iniciales.
-            </p>
+      {/* SECTION 3: DATABASE TOOLS & RESET (ONLY IN DEBUG MODE) */}
+      {isDebugMode && (
+        <div className="bg-white p-6 rounded-3xl border border-slate-200/90 shadow-2xs space-y-4 animate-fadeIn">
+          <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+            <Database className="w-4 h-4 text-emerald-600" />
+            <h3 className="font-bold text-slate-800 text-sm">Herramientas de Base de Datos SQLite</h3>
           </div>
-          <button
-            onClick={() => {
-              if (confirm('¿Deseas reiniciar la base de datos a sus valores demo predeterminados?')) {
-                onResetDatabase();
-              }
-            }}
-            className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
-          >
-            <RefreshCw className="w-3.5 h-3.5" /> Reestablecer Datos Demo
-          </button>
+
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 bg-slate-50 p-4 rounded-2xl border border-slate-200">
+            <div>
+              <span className="font-bold text-slate-800 text-xs block">Reestablecer Datos de Demostración</span>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Restaura los alumnos de prueba, bitácora de asistencias y aulas a sus valores iniciales en SQLite.
+              </p>
+            </div>
+            <button
+              onClick={() => {
+                if (confirm('¿Deseas reiniciar la base de datos a sus valores demo predeterminados?')) {
+                  onResetDatabase();
+                }
+              }}
+              className="px-3.5 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 transition cursor-pointer shrink-0"
+            >
+              <RefreshCw className="w-3.5 h-3.5" /> Reestablecer Datos Demo
+            </button>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* MODAL ALTA EMPLEADO */}
       {showEmpModal && (

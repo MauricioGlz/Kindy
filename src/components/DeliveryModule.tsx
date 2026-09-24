@@ -1,19 +1,29 @@
 import { useState, useEffect } from 'react';
 import {
-  KeyRound,
+  QrCode,
+  Camera,
+  ScanLine,
   ArrowLeft,
-  ArrowRight,
   Clock,
   CheckCircle2,
   AlertCircle,
-  Sparkles,
   History,
   ShieldCheck,
   CreditCard,
   Calendar,
+  KeyRound,
+  Users,
+  Check,
+  Sparkles,
 } from 'lucide-react';
 import { Student, AttendanceLog, InstitutionSettings } from '../types.ts';
 import PaymentModal from './PaymentModal.tsx';
+import QrScannerModal from './QrScannerModal.tsx';
+import {
+  createParentQrPayload,
+  createTrustedContactQrPayload,
+} from '../utils/qrSecurity.ts';
+import { useDebugMode } from '../context/DebugContext.tsx';
 
 interface DeliveryModuleProps {
   students: Student[];
@@ -23,13 +33,23 @@ interface DeliveryModuleProps {
     student: Student,
     actionType: 'recepcion' | 'entrega',
     timeStr: string,
-    dateStr: string
+    dateStr: string,
+    authorizedPerson?: string,
+    qrKey?: string
   ) => void;
   onPayTuition?: (
     studentId: number,
     method: 'transferencia' | 'tarjeta',
     amount: number
   ) => Promise<void> | void;
+}
+
+interface ActiveQrSession {
+  student: Student;
+  authorizedPerson: string;
+  qrKey: string;
+  roleDescription: string;
+  verificationMethod: 'camera' | 'file' | 'code' | 'demo';
 }
 
 export default function DeliveryModule({
@@ -39,17 +59,28 @@ export default function DeliveryModule({
   onRecordAction,
   onPayTuition,
 }: DeliveryModuleProps) {
-  const [pinBuffer, setPinBuffer] = useState<string>('');
-  const [activePin, setActivePin] = useState<string | null>(null);
+  const { isDebugMode } = useDebugMode();
+  // Live clock
   const [liveTime, setLiveTime] = useState<string>('');
+
+  // Scanner Modal state
+  const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
+  const [activeSession, setActiveSession] = useState<ActiveQrSession | null>(null);
+
+  // Manual key input state
+  const [manualKeyBuffer, setManualKeyBuffer] = useState<string>('');
+  const [manualError, setManualError] = useState<string | null>(null);
+
+  // Action Confirmation Modal
   const [selectedChildForAction, setSelectedChildForAction] = useState<Student | null>(null);
   const [showConfirmModal, setShowConfirmModal] = useState<boolean>(false);
   const [actionSuccessMessage, setActionSuccessMessage] = useState<string | null>(null);
+
+  // History & Tuition Modals
   const [showHistoryModal, setShowHistoryModal] = useState<boolean>(false);
   const [selectedChildForPayment, setSelectedChildForPayment] = useState<Student | null>(null);
   const [showPaymentModal, setShowPaymentModal] = useState<boolean>(false);
 
-  // Live clock
   useEffect(() => {
     const updateTime = () => {
       const now = new Date();
@@ -60,71 +91,90 @@ export default function DeliveryModule({
     return () => clearInterval(interval);
   }, []);
 
-  // Physical keyboard support for PIN
-  useEffect(() => {
-    if (activePin) return; // already in children view
+  // Handler when a QR code payload is scanned (from camera, file or demo)
+  const handleQrVerified = (verifiedStudent: Student, personName: string, qrKey: string) => {
+    setIsScannerOpen(false);
+    setManualError(null);
 
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key >= '0' && e.key <= '9') {
-        if (pinBuffer.length < 6) {
-          setPinBuffer((prev) => prev + e.key);
-        }
-      } else if (e.key === 'Backspace') {
-        setPinBuffer((prev) => prev.slice(0, -1));
-      } else if (e.key === 'Enter') {
-        if (pinBuffer.length === 6) {
-          submitPin(pinBuffer);
+    // Determine role description
+    let role = 'Tutor Autorizado';
+    if (personName.includes(verifiedStudent.father) || personName.includes(verifiedStudent.mother)) {
+      role = 'Padre / Madre de Familia';
+    } else {
+      const famItem = verifiedStudent.trustedFamilyList?.find((f) => f.qrKey === qrKey);
+      if (famItem) {
+        role = `${famItem.relation} Autorizado(a)`;
+      } else {
+        role = 'Familiar de Confianza';
+      }
+    }
+
+    setActiveSession({
+      student: verifiedStudent,
+      authorizedPerson: personName,
+      qrKey,
+      roleDescription: role,
+      verificationMethod: 'camera',
+    });
+  };
+
+  // Manual key verification (for barcode gun or manual typing)
+  const handleManualKeySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    const key = manualKeyBuffer.trim();
+    if (!key) return;
+
+    // Search by parentQrKey or by trusted family qrKey
+    for (const std of students) {
+      if (std.parentQrKey && std.parentQrKey.toLowerCase() === key.toLowerCase()) {
+        const parents = `${std.father} / ${std.mother}`;
+        handleQrVerified(std, parents, std.parentQrKey);
+        setManualKeyBuffer('');
+        return;
+      }
+      if (std.trustedFamilyList) {
+        const foundFam = std.trustedFamilyList.find(
+          (f) => f.qrKey.toLowerCase() === key.toLowerCase()
+        );
+        if (foundFam) {
+          handleQrVerified(std, `${foundFam.name} (${foundFam.relation})`, foundFam.qrKey);
+          setManualKeyBuffer('');
+          return;
         }
       }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [pinBuffer, activePin]);
-
-  useEffect(() => {
-    if (pinBuffer.length === 6 && !activePin) {
-      const timer = setTimeout(() => {
-        submitPin(pinBuffer);
-      }, 160);
-      return () => clearTimeout(timer);
+      // Also fallback search in legacy securityPin
+      if (std.securityPin === key) {
+        handleQrVerified(std, `${std.father} / ${std.mother}`, std.parentQrKey || key);
+        setManualKeyBuffer('');
+        return;
+      }
     }
-  }, [pinBuffer, activePin]);
 
-  const handleDigit = (digit: string) => {
-    if (pinBuffer.length < 6) {
-      setPinBuffer((prev) => prev + digit);
-    }
+    setManualError('Llave criptográfica no encontrada. Verifica la clave o escanea el QR con la cámara.');
   };
 
-  const clearPin = () => {
-    setPinBuffer('');
-  };
-
-  const submitPin = (pinToTest: string) => {
-    const matched = students.filter((s) => s.securityPin === pinToTest);
-    if (matched.length === 0) {
-      alert('PIN de 6 dígitos no registrado. Prueba con 123456 (Familia Soto) o 654321 (Familia Castillo).');
-      setPinBuffer('');
-      return;
+  const handleSimulateQuickPass = (student: Student, type: 'parent' | 'family') => {
+    if (type === 'parent') {
+      const parentPayload = createParentQrPayload(student);
+      handleQrVerified(student, `${student.father} / ${student.mother}`, parentPayload.qrKey);
+    } else {
+      const famItem = student.trustedFamilyList?.[0] || {
+        name: student.trustedContacts?.[0] || 'Familiar de Confianza',
+        relation: 'Familiar',
+        qrKey: `KND-FAM-${student.id}-TEST`,
+      };
+      const famPayload = createTrustedContactQrPayload(student, famItem);
+      handleQrVerified(student, `${famItem.name} (${famItem.relation})`, famPayload.qrKey);
     }
-    setActivePin(pinToTest);
   };
 
   const resetSession = () => {
-    setActivePin(null);
-    setPinBuffer('');
+    setActiveSession(null);
+    setManualKeyBuffer('');
+    setManualError(null);
     setSelectedChildForAction(null);
     setShowConfirmModal(false);
   };
-
-  const matchedStudents = activePin
-    ? students.filter((s) => s.securityPin === activePin)
-    : [];
-
-  const familyName = matchedStudents.length > 0
-    ? matchedStudents[0].father.split(' ').slice(1).join(' ') || 'Familia'
-    : 'Tutor';
 
   const handleOpenActionModal = (child: Student) => {
     setSelectedChildForAction(child);
@@ -132,28 +182,53 @@ export default function DeliveryModule({
   };
 
   const handleConfirmAction = () => {
-    if (!selectedChildForAction) return;
+    if (!selectedChildForAction || !activeSession) return;
 
-    const actionType: 'recepcion' | 'entrega' = selectedChildForAction.delivered ? 'entrega' : 'recepcion';
+    const actionType: 'recepcion' | 'entrega' = selectedChildForAction.delivered
+      ? 'entrega'
+      : 'recepcion';
     const now = new Date();
     const timeStr = now.toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
     const dateStr = now.toISOString().split('T')[0];
 
-    onRecordAction(selectedChildForAction, actionType, timeStr, dateStr);
+    onRecordAction(
+      selectedChildForAction,
+      actionType,
+      timeStr,
+      dateStr,
+      activeSession.authorizedPerson,
+      activeSession.qrKey
+    );
 
-    const verb = actionType === 'recepcion' ? 'Recepción (Entrada)' : 'Entrega (Salida)';
-    setActionSuccessMessage(`¡${verb} confirmada para ${selectedChildForAction.name} a las ${timeStr}!`);
+    const verb = actionType === 'recepcion' ? 'Recepción (Entrada al Plantel)' : 'Entrega (Salida a Tutor)';
+    setActionSuccessMessage(
+      `¡${verb} confirmada para ${selectedChildForAction.name} con validación de QR exitosa!`
+    );
+
+    // Update session student state locally as well
+    setActiveSession((prev) => {
+      if (!prev) return null;
+      return {
+        ...prev,
+        student: {
+          ...prev.student,
+          delivered: actionType === 'recepcion',
+          lastActionTime: timeStr,
+        },
+      };
+    });
 
     setShowConfirmModal(false);
     setSelectedChildForAction(null);
 
     setTimeout(() => {
       setActionSuccessMessage(null);
-    }, 4000);
+    }, 4500);
   };
 
   return (
     <div id="view-module-entregas" className="w-full max-w-4xl space-y-4">
+      {/* Toast notification */}
       {actionSuccessMessage && (
         <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-3 rounded-2xl flex items-center gap-2.5 text-xs font-semibold shadow-xs animate-fadeIn">
           <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
@@ -161,263 +236,303 @@ export default function DeliveryModule({
         </div>
       )}
 
-      {!activePin ? (
-        /* STEP 1: PIN ENTRY FOR PARENTS */
+      {!activeSession ? (
+        /* STEP 1: SCAN QR CODE STATION */
         <div className="space-y-4">
           <div
-            id="entregas-step-pin"
-            className="max-w-md mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-pink-100 shadow-md text-center"
+            id="entregas-step-qr"
+            className="max-w-xl mx-auto bg-white p-6 sm:p-8 rounded-3xl border border-pink-100 shadow-md text-center space-y-6"
           >
-            <div className="w-14 h-14 rounded-2xl bg-[#FCE7F3] mx-auto flex items-center justify-center text-pink-500 mb-3 shadow-2xs">
-              <KeyRound className="w-7 h-7" />
-            </div>
-            <h2 className="text-xl font-bold text-slate-800 mb-1">Acceso de Padres / Tutor</h2>
-            <p className="text-xs text-slate-400 mb-5">
-              Ingresa tu PIN de 6 dígitos para gestionar la entrega o recepción de tu hijo(a)
-            </p>
-
-            {/* PIN Dots */}
-            <div className="flex justify-center gap-2 mb-5">
-              {[0, 1, 2, 3, 4, 5].map((idx) => {
-                const filled = idx < pinBuffer.length;
-                return (
-                  <div
-                    key={idx}
-                    className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${
-                      filled
-                        ? 'bg-pink-400 border-pink-400 scale-110 shadow-2xs'
-                        : 'bg-transparent border-pink-300'
-                    }`}
-                  />
-                );
-              })}
-            </div>
-
-            {/* Keypad */}
-            <div className="grid grid-cols-3 gap-2.5 max-w-[240px] mx-auto mb-4">
-              {['1', '2', '3'].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => handleDigit(n)}
-                  className="h-11 rounded-xl bg-[#E0F2FE]/70 hover:bg-[#E0F2FE] font-bold text-slate-700 transition cursor-pointer active:scale-95 shadow-2xs"
-                >
-                  {n}
-                </button>
-              ))}
-              {['4', '5', '6'].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => handleDigit(n)}
-                  className="h-11 rounded-xl bg-[#FCE7F3]/70 hover:bg-[#FCE7F3] font-bold text-slate-700 transition cursor-pointer active:scale-95 shadow-2xs"
-                >
-                  {n}
-                </button>
-              ))}
-              {['7', '8', '9'].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => handleDigit(n)}
-                  className="h-11 rounded-xl bg-[#DCFCE7]/70 hover:bg-[#DCFCE7] font-bold text-slate-700 transition cursor-pointer active:scale-95 shadow-2xs"
-                >
-                  {n}
-                </button>
-              ))}
-              <button
-                onClick={clearPin}
-                className="h-11 rounded-xl bg-slate-100 hover:bg-slate-200 text-[10px] font-bold text-slate-500 transition cursor-pointer"
-              >
-                BORRAR
-              </button>
-              <button
-                onClick={() => handleDigit('0')}
-                className="h-11 rounded-xl bg-[#E0F2FE]/70 hover:bg-[#E0F2FE] font-bold text-slate-700 transition cursor-pointer active:scale-95 shadow-2xs"
-              >
-                0
-              </button>
-              <button
-                onClick={() => submitPin(pinBuffer)}
-                disabled={pinBuffer.length < 6}
-                className="h-11 rounded-xl bg-emerald-400 hover:bg-emerald-500 disabled:opacity-40 text-white flex items-center justify-center shadow-xs transition cursor-pointer active:scale-95"
-              >
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Demo PIN quick selector */}
-            <div className="pt-3 border-t border-slate-100">
-              <span className="text-[11px] font-semibold text-slate-400 block mb-2">
-                Accesos directos con PINs de prueba:
-              </span>
-              <div className="flex flex-wrap justify-center gap-1.5 text-[11px]">
-                <button
-                  onClick={() => {
-                    setPinBuffer('123456');
-                    submitPin('123456');
-                  }}
-                  className="px-2.5 py-1 bg-[#FCE7F3] hover:bg-pink-200 text-pink-900 rounded-lg font-medium transition cursor-pointer"
-                >
-                  Familia Soto (123456)
-                </button>
-                <button
-                  onClick={() => {
-                    setPinBuffer('654321');
-                    submitPin('654321');
-                  }}
-                  className="px-2.5 py-1 bg-[#E0F2FE] hover:bg-sky-200 text-sky-900 rounded-lg font-medium transition cursor-pointer"
-                >
-                  Familia Castillo (654321)
-                </button>
-                <button
-                  onClick={() => {
-                    setPinBuffer('112233');
-                    submitPin('112233');
-                  }}
-                  className="px-2.5 py-1 bg-[#DCFCE7] hover:bg-emerald-200 text-emerald-900 rounded-lg font-medium transition cursor-pointer"
-                >
-                  Familia Herrera (112233)
-                </button>
+            {/* Header Icon */}
+            <div className="relative w-20 h-20 mx-auto">
+              <div className="w-20 h-20 rounded-3xl bg-gradient-to-tr from-pink-500 to-rose-400 flex items-center justify-center text-white shadow-lg shadow-pink-200">
+                <QrCode className="w-10 h-10" />
+              </div>
+              <div className="absolute -bottom-1 -right-1 w-7 h-7 bg-emerald-500 text-white rounded-full flex items-center justify-center border-2 border-white shadow-xs">
+                <ShieldCheck className="w-4 h-4" />
               </div>
             </div>
+
+            <div>
+              <h2 className="text-xl sm:text-2xl font-black text-slate-800 tracking-tight">
+                Estación de Recepción y Entrega por QR
+              </h2>
+              <p className="text-xs text-slate-500 mt-1 max-w-md mx-auto leading-relaxed">
+                Escanea el Código QR único de los Padres o Familiares de Confianza autorizados.
+                Cada QR contiene una llave criptográfica intransferible para máxima seguridad.
+              </p>
+            </div>
+
+            {/* Main Action: Open Camera Scanner */}
+            <div className="pt-2">
+              <button
+                type="button"
+                id="btn-open-qr-scanner"
+                onClick={() => setIsScannerOpen(true)}
+                className="w-full py-4 px-6 bg-gradient-to-r from-pink-500 via-rose-500 to-pink-600 hover:from-pink-600 hover:to-rose-600 text-white rounded-2xl font-bold text-sm shadow-md hover:shadow-lg transition-all flex items-center justify-center gap-3 cursor-pointer group"
+              >
+                <div className="p-1.5 bg-white/20 rounded-xl group-hover:scale-110 transition">
+                  <Camera className="w-5 h-5 text-white" />
+                </div>
+                <span>Escanear Código QR con la Cámara</span>
+                <ScanLine className="w-4 h-4 opacity-80" />
+              </button>
+            </div>
+
+            {/* Quick Demo Passes Access for Testing (ONLY IN DEBUG MODE) */}
+            {isDebugMode && (
+              <div className="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 text-left space-y-3 animate-fadeIn">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-700 flex items-center gap-1.5">
+                    <Sparkles className="w-3.5 h-3.5 text-pink-500" /> Accesos Rápidos de Prueba (Modo Depuración):
+                  </span>
+                  <span className="text-[10px] text-slate-400">Clic para simular escaneo</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  {students.slice(0, 4).map((std) => (
+                    <div
+                      key={std.id}
+                      className="p-2.5 bg-white rounded-xl border border-slate-200 flex items-center justify-between gap-2 shadow-2xs hover:border-pink-300 transition"
+                    >
+                      <div className="min-w-0">
+                        <span className="text-xs font-bold text-slate-800 block truncate">
+                          {std.name}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block truncate">
+                          {std.classroom} • {std.delivered ? 'En Plantel' : 'Fuera'}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-1 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleSimulateQuickPass(std, 'parent')}
+                          className="px-2 py-1 bg-pink-100 hover:bg-pink-200 text-pink-900 text-[10px] font-bold rounded-lg transition cursor-pointer"
+                          title="Simular QR Padres"
+                        >
+                          QR Padres
+                        </button>
+                        {std.trustedFamilyList && std.trustedFamilyList.length > 0 && (
+                          <button
+                            type="button"
+                            onClick={() => handleSimulateQuickPass(std, 'family')}
+                            className="px-2 py-1 bg-sky-100 hover:bg-sky-200 text-sky-900 text-[10px] font-bold rounded-lg transition cursor-pointer"
+                            title="Simular QR Familiar"
+                          >
+                            QR Familiar
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Manual Key / Barcode Scanner Fallback */}
+            <form onSubmit={handleManualKeySubmit} className="pt-2 border-t border-slate-100 text-left space-y-2">
+              <label className="block text-[11px] font-semibold text-slate-600">
+                O ingresa la llave criptográfica / lector de código de barras manual:
+              </label>
+              <div className="flex gap-2">
+                <div className="relative flex-1">
+                  <KeyRound className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={manualKeyBuffer}
+                    onChange={(e) => {
+                      setManualKeyBuffer(e.target.value);
+                      setManualError(null);
+                    }}
+                    placeholder="Ej. KND-PAR-SOTO-... o PIN de 6 dígitos"
+                    className="w-full pl-9 pr-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-xs font-mono focus:bg-white focus:outline-none focus:ring-2 focus:ring-pink-200"
+                  />
+                </div>
+                <button
+                  type="submit"
+                  className="px-4 py-2.5 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-bold transition cursor-pointer"
+                >
+                  Validar
+                </button>
+              </div>
+              {manualError && (
+                <p className="text-[11px] text-rose-600 font-medium flex items-center gap-1 mt-1">
+                  <AlertCircle className="w-3.5 h-3.5" /> {manualError}
+                </p>
+              )}
+            </form>
           </div>
 
-          {/* Recent Attendance Logs Button */}
-          <div className="text-center">
-            <button
-              onClick={() => setShowHistoryModal(true)}
-              className="text-xs text-slate-500 hover:text-slate-700 inline-flex items-center gap-1.5 transition cursor-pointer"
-            >
-              <History className="w-3.5 h-3.5" /> Ver bitácora reciente de entradas y salidas (SQL)
-            </button>
-          </div>
+          {/* Recent Attendance Logs Button (ONLY IN DEBUG MODE) */}
+          {isDebugMode && (
+            <div className="text-center animate-fadeIn">
+              <button
+                onClick={() => setShowHistoryModal(true)}
+                className="text-xs text-slate-500 hover:text-slate-800 inline-flex items-center gap-1.5 transition cursor-pointer py-1 px-3 rounded-xl hover:bg-white border border-transparent hover:border-slate-200"
+              >
+                <History className="w-3.5 h-3.5 text-pink-500" /> Ver bitácora reciente de entradas y salidas (SQL)
+              </button>
+            </div>
+          )}
         </div>
       ) : (
-        /* STEP 2: CHILDREN OF THE LOGGED TUTOR */
-        <div id="entregas-step-children" className="space-y-4">
-          <div className="flex flex-wrap items-center justify-between bg-white p-4 rounded-3xl border border-slate-200 gap-4 shadow-xs">
+        /* STEP 2: VERIFIED QR SESSION (CHILD CARD + TUITION INTEGRATION) */
+        <div id="entregas-step-verified" className="space-y-4 animate-fadeIn">
+          {/* Top Session Banner */}
+          <div className="flex flex-wrap items-center justify-between bg-white p-4 sm:p-5 rounded-3xl border border-slate-200 gap-4 shadow-2xs">
             <div className="flex items-center gap-3">
               <button
                 onClick={resetSession}
                 className="p-2 hover:bg-slate-100 rounded-xl text-slate-500 transition cursor-pointer"
-                title="Cambiar de familia / Cerrar sesión de tutor"
+                title="Escanear otro código QR / Cerrar sesión"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>
               <div>
-                <h2 className="text-base font-bold text-slate-800">
-                  Familia {familyName} • Alumnos Registrados
-                </h2>
-                <p className="text-xs text-slate-500">
-                  Selecciona al alumno para confirmar entrega o recepción
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-slate-800">
+                    {activeSession.authorizedPerson}
+                  </span>
+                  <span className="text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200 flex items-center gap-1">
+                    <ShieldCheck className="w-3 h-3 text-emerald-600" /> QR Verificado
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Rol: <strong className="text-slate-700">{activeSession.roleDescription}</strong> • Llave:{' '}
+                  <span className="font-mono text-[10px] text-slate-600">{activeSession.qrKey}</span>
                 </p>
               </div>
             </div>
 
-            <div className="bg-[#E0F2FE]/80 px-4 py-2 rounded-2xl border border-blue-200 text-right">
-              <span className="text-[10px] text-sky-800 font-semibold uppercase block tracking-wider flex items-center justify-end gap-1">
-                <Clock className="w-3 h-3" /> Hora Oficial
-              </span>
-              <span className="text-lg font-bold text-sky-950 font-mono">{liveTime}</span>
+            <div className="flex items-center gap-3">
+              <div className="bg-[#E0F2FE]/80 px-4 py-2 rounded-2xl border border-blue-200 text-right">
+                <span className="text-[10px] text-sky-800 font-semibold uppercase block tracking-wider flex items-center justify-end gap-1">
+                  <Clock className="w-3 h-3" /> Hora Oficial
+                </span>
+                <span className="text-lg font-bold text-sky-950 font-mono">{liveTime}</span>
+              </div>
+              <button
+                onClick={resetSession}
+                className="px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-semibold transition cursor-pointer"
+              >
+                Escanear Siguiente
+              </button>
             </div>
           </div>
 
-          {/* Children cards grid */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-            {matchedStudents.map((child) => (
-              <div
-                key={child.id}
-                className="bg-white p-5 rounded-3xl border border-slate-200 shadow-xs flex flex-col items-center text-center justify-between gap-3"
-              >
-                <div className="w-full flex justify-between items-center text-[10px] font-bold">
-                  <span className="text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
-                    {child.classroom}
-                  </span>
-                  <span
-                    className={`px-2.5 py-0.5 rounded-full font-bold text-[10px] ${
-                      child.delivered
-                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                        : 'bg-pink-100 text-pink-700 border border-pink-200'
-                    }`}
-                  >
-                    {child.delivered ? 'EN PLANTEL' : 'FUERA DEL PLANTEL'}
-                  </span>
-                </div>
-
-                <img
-                  src={child.photo}
-                  alt={child.name}
-                  className={`w-24 h-24 rounded-2xl object-cover border-3 ${
-                    child.delivered ? 'border-emerald-300' : 'border-pink-200'
-                  } shadow-xs my-1`}
-                />
-
-                <div>
-                  <h3 className="font-bold text-slate-800 text-sm">{child.name}</h3>
-                  <p className="text-[11px] text-slate-400 mt-0.5">
-                    {child.delivered
-                      ? `Ingreso: ${child.lastActionTime || 'Hoy'}`
-                      : child.lastActionTime
-                      ? `Última salida: ${child.lastActionTime}`
-                      : 'Pendiente de entrega/recepción'}
-                  </p>
-                </div>
-
-                {/* Recuadro de Próximo Pago de Colegiatura */}
-                <div className="w-full bg-[#FAF7F5] rounded-2xl p-3 border border-slate-200/90 text-left space-y-2">
-                  <div className="flex items-center justify-between text-[10px]">
-                    <span className="text-slate-500 font-bold uppercase flex items-center gap-1">
-                      <Calendar className="w-3 h-3 text-pink-500" /> Próximo Pago:
-                    </span>
-                    <span
-                      className={`px-2 py-0.5 rounded-full font-bold text-[9px] ${
-                        child.tuitionStatus === 'Pagado'
-                          ? 'bg-emerald-100 text-emerald-800'
-                          : child.tuitionStatus === 'Vencido'
-                          ? 'bg-rose-100 text-rose-800'
-                          : 'bg-amber-100 text-amber-800'
-                      }`}
-                    >
-                      {child.tuitionStatus === 'Pagado' ? 'Al corriente' : child.tuitionStatus === 'Vencido' ? 'Vencido' : 'Pendiente'}
-                    </span>
-                  </div>
-
-                  <div className="flex items-baseline justify-between">
-                    <span className="text-xs font-semibold text-slate-700">{child.paymentDate}</span>
-                    <span className="text-xs font-mono font-bold text-slate-900">
-                      ${child.tuitionAmount.toLocaleString('es-MX')} MXN
-                    </span>
-                  </div>
-
-                  <button
-                    type="button"
-                    id={`btn-pay-delivery-child-${child.id}`}
-                    onClick={() => {
-                      setSelectedChildForPayment(child);
-                      setShowPaymentModal(true);
-                    }}
-                    className={`w-full py-1.5 px-2 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${
-                      child.tuitionStatus === 'Pagado'
-                        ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
-                        : 'bg-amber-500 hover:bg-amber-600 text-white'
-                    }`}
-                  >
-                    <CreditCard className="w-3.5 h-3.5" />
-                    {child.tuitionStatus === 'Pagado' ? 'Ver / Adelantar Pago' : 'Pagar Colegiatura'}
-                  </button>
-                </div>
-
-                <button
-                  id={`btn-action-child-${child.id}`}
-                  onClick={() => handleOpenActionModal(child)}
-                  className={`w-full py-2.5 rounded-xl font-bold text-xs transition shadow-2xs cursor-pointer ${
-                    child.delivered
-                      ? 'bg-[#FCE7F3] hover:bg-pink-200 text-pink-900 border border-pink-300'
-                      : 'bg-[#DCFCE7] hover:bg-emerald-200 text-emerald-900 border border-emerald-300'
+          {/* Child Card with Direct Colegiatura Integration */}
+          <div className="max-w-md mx-auto">
+            <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200 shadow-xs flex flex-col items-center text-center justify-between gap-4">
+              <div className="w-full flex justify-between items-center text-[10px] font-bold">
+                <span className="text-slate-500 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200">
+                  {activeSession.student.classroom}
+                </span>
+                <span
+                  className={`px-3 py-1 rounded-full font-bold text-[10px] tracking-wider uppercase ${
+                    activeSession.student.delivered
+                      ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                      : 'bg-pink-100 text-pink-700 border border-pink-200'
                   }`}
                 >
-                  {child.delivered ? 'Confirmar Salida / Entrega' : 'Confirmar Entrada / Recepción'}
+                  {activeSession.student.delivered ? 'EN PLANTEL' : 'FUERA DEL PLANTEL'}
+                </span>
+              </div>
+
+              <img
+                src={activeSession.student.photo}
+                alt={activeSession.student.name}
+                className={`w-28 h-28 rounded-2xl object-cover border-4 ${
+                  activeSession.student.delivered ? 'border-emerald-300' : 'border-pink-200'
+                } shadow-sm my-1`}
+              />
+
+              <div>
+                <h3 className="font-bold text-slate-800 text-base">{activeSession.student.name}</h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {activeSession.student.delivered
+                    ? `Ingreso registrado: ${activeSession.student.lastActionTime || 'Hoy'}`
+                    : activeSession.student.lastActionTime
+                    ? `Última salida: ${activeSession.student.lastActionTime}`
+                    : 'Listo para confirmar recepción o entrega'}
+                </p>
+              </div>
+
+              {/* RECUADRO DE COLEGIATURA CONECTADO DIRECTAMENTE */}
+              <div className="w-full bg-[#FAF7F5] rounded-2xl p-3.5 border border-slate-200/90 text-left space-y-2.5">
+                <div className="flex items-center justify-between text-[10px]">
+                  <span className="text-slate-500 font-bold uppercase flex items-center gap-1">
+                    <Calendar className="w-3.5 h-3.5 text-pink-500" /> Próximo Pago de Colegiatura:
+                  </span>
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full font-bold text-[9px] ${
+                      activeSession.student.tuitionStatus === 'Pagado'
+                        ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
+                        : activeSession.student.tuitionStatus === 'Vencido'
+                        ? 'bg-rose-100 text-rose-800 border border-rose-200'
+                        : 'bg-amber-100 text-amber-800 border border-amber-200'
+                    }`}
+                  >
+                    {activeSession.student.tuitionStatus === 'Pagado'
+                      ? 'Al corriente'
+                      : activeSession.student.tuitionStatus === 'Vencido'
+                      ? 'Vencido'
+                      : 'Pendiente'}
+                  </span>
+                </div>
+
+                <div className="flex items-baseline justify-between">
+                  <div>
+                    <span className="text-xs font-bold text-slate-800 block">
+                      {activeSession.student.paymentDate}
+                    </span>
+                    <span className="text-[10px] text-slate-400">Fecha de vencimiento</span>
+                  </div>
+                  <div className="text-right">
+                    <span className="text-sm font-mono font-black text-slate-900 block">
+                      ${activeSession.student.tuitionAmount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+                    </span>
+                    <span className="text-[10px] text-slate-400">MXN</span>
+                  </div>
+                </div>
+
+                {/* BOTÓN PARA PAGAR: MISMA INTERFAZ DE OPCIONES DE PAGO */}
+                <button
+                  type="button"
+                  id={`btn-pay-delivery-child-${activeSession.student.id}`}
+                  onClick={() => {
+                    setSelectedChildForPayment(activeSession.student);
+                    setShowPaymentModal(true);
+                  }}
+                  className={`w-full py-2 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer shadow-2xs ${
+                    activeSession.student.tuitionStatus === 'Pagado'
+                      ? 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                      : 'bg-amber-500 hover:bg-amber-600 text-white shadow-amber-200'
+                  }`}
+                >
+                  <CreditCard className="w-3.5 h-3.5" />
+                  {activeSession.student.tuitionStatus === 'Pagado'
+                    ? 'Ver / Adelantar Pago'
+                    : 'Pagar Colegiatura Ahora'}
                 </button>
               </div>
-            ))}
+
+              {/* ACTION CONFIRMATION TRIGGER */}
+              <button
+                id={`btn-action-child-${activeSession.student.id}`}
+                onClick={() => handleOpenActionModal(activeSession.student)}
+                className={`w-full py-3 rounded-xl font-bold text-xs transition shadow-2xs cursor-pointer flex items-center justify-center gap-2 ${
+                  activeSession.student.delivered
+                    ? 'bg-pink-500 hover:bg-pink-600 text-white shadow-pink-200'
+                    : 'bg-emerald-500 hover:bg-emerald-600 text-white shadow-emerald-200'
+                }`}
+              >
+                <QrCode className="w-4 h-4" />
+                {activeSession.student.delivered
+                  ? `Confirmar Salida / Entrega a ${activeSession.authorizedPerson.split(' ')[0]}`
+                  : 'Confirmar Entrada / Recepción en Plantel'}
+              </button>
+            </div>
           </div>
 
           <div className="text-center pt-2">
@@ -425,36 +540,41 @@ export default function DeliveryModule({
               onClick={resetSession}
               className="text-xs text-slate-400 hover:text-slate-600 transition cursor-pointer"
             >
-              Terminar y volver al ingreso de PIN
+              Terminar y volver a la estación de escaneo QR
             </button>
           </div>
         </div>
       )}
 
-      {/* CONFIRMATION ACTION MODAL */}
-      {showConfirmModal && selectedChildForAction && (
+      {/* MODAL: CONFIRM ACTION (RECEPCIÓN O ENTREGA) */}
+      {showConfirmModal && selectedChildForAction && activeSession && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-slate-100 text-center animate-scaleIn">
             <img
               src={selectedChildForAction.photo}
               alt={selectedChildForAction.name}
-              className="w-24 h-24 rounded-2xl object-cover shadow-sm border-4 border-[#FCE7F3] mx-auto mb-3"
+              className="w-24 h-24 rounded-2xl object-cover shadow-sm border-4 border-pink-200 mx-auto mb-3"
             />
             <h3 className="text-lg font-bold text-slate-800">{selectedChildForAction.name}</h3>
-            <p
-              className={`inline-block text-xs font-semibold mt-1 px-3 py-1 rounded-full ${
-                selectedChildForAction.delivered
-                  ? 'bg-emerald-100 text-emerald-800'
-                  : 'bg-slate-100 text-slate-600'
-              }`}
-            >
-              {selectedChildForAction.delivered
-                ? 'Estado actual: En Plantel'
-                : 'Estado actual: Fuera del Plantel'}
-            </p>
+            
+            <div className="mt-2 space-y-1">
+              <span
+                className={`inline-block text-[10px] font-bold px-3 py-1 rounded-full ${
+                  selectedChildForAction.delivered
+                    ? 'bg-emerald-100 text-emerald-800'
+                    : 'bg-slate-100 text-slate-600'
+                }`}
+              >
+                {selectedChildForAction.delivered ? 'Estado actual: En Plantel' : 'Estado actual: Fuera del Plantel'}
+              </span>
+
+              <p className="text-xs text-slate-600 font-medium">
+                Tutor Acreditado: <strong className="text-slate-800">{activeSession.authorizedPerson}</strong>
+              </p>
+            </div>
 
             {/* Current Real Time Box */}
-            <div className="my-4 bg-[#FEF9C3]/70 border border-amber-200/80 rounded-2xl p-3 w-full text-center">
+            <div className="my-3 bg-[#FEF9C3]/80 border border-amber-200/80 rounded-2xl p-3 w-full text-center">
               <span className="text-[10px] text-amber-800 font-semibold uppercase block">
                 Hora Oficial del Registro
               </span>
@@ -463,8 +583,8 @@ export default function DeliveryModule({
 
             <p className="text-xs text-slate-500 mb-5 leading-relaxed">
               {selectedChildForAction.delivered
-                ? '¿Confirmas la ENTREGA del alumno al tutor en este momento? El estado cambiará a "Fuera del Plantel".'
-                : '¿Confirmas la RECEPCIÓN del alumno en el plantel? El estado cambiará a "En Plantel".'}
+                ? `¿Confirmas la ENTREGA del menor a ${activeSession.authorizedPerson}? Se guardará el registro con su firma QR.`
+                : '¿Confirmas la RECEPCIÓN del alumno en el plantel? Se guardará el registro con la firma QR.'}
             </p>
 
             <div className="flex gap-2.5">
@@ -490,13 +610,23 @@ export default function DeliveryModule({
         </div>
       )}
 
-      {/* RECENT ATTENDANCE LOGS MODAL (SQL Table inspection) */}
-      {showHistoryModal && (
+      {/* SCANNER CAMERA & FILE MODAL */}
+      <QrScannerModal
+        isOpen={isScannerOpen}
+        students={students}
+        onClose={() => setIsScannerOpen(false)}
+        onVerified={handleQrVerified}
+      />
+
+      {/* RECENT ATTENDANCE LOGS MODAL (SQL Table inspection - ONLY IN DEBUG MODE) */}
+      {isDebugMode && showHistoryModal && (
         <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
           <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-slate-100">
             <div className="flex justify-between items-center mb-3">
               <div>
-                <h3 className="text-base font-bold text-slate-800">Bitácora de Asistencias (SQL)</h3>
+                <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                  <QrCode className="w-4 h-4 text-pink-500" /> Bitácora de Asistencias y QR (SQL)
+                </h3>
                 <p className="text-xs text-slate-400">
                   Registros en tiempo real de la tabla <code className="text-pink-600 font-mono">attendance_logs</code>
                 </p>
@@ -514,14 +644,17 @@ export default function DeliveryModule({
                 <p className="text-slate-400 text-center py-6">No hay registros de asistencias aún.</p>
               ) : (
                 attendanceLogs.map((log) => (
-                  <div key={log.id} className="py-2.5 flex items-center justify-between">
+                  <div key={log.id} className="py-2.5 flex items-center justify-between gap-2">
                     <div>
                       <span className="font-bold text-slate-800 block">{log.studentName}</span>
-                      <span className="text-[10px] text-slate-400 font-mono">
-                        PIN: {log.tutorPin} • Fecha: {log.date}
+                      <span className="text-[10px] text-slate-500 block">
+                        Acreditado: <strong className="text-slate-700">{log.authorizedPerson || 'Tutor'}</strong>
+                      </span>
+                      <span className="text-[9px] text-slate-400 font-mono block truncate max-w-[200px]">
+                        Llave QR: {log.qrKey || log.tutorPin || 'N/A'} • {log.date}
                       </span>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <span
                         className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
                           log.actionType === 'recepcion'
@@ -552,7 +685,7 @@ export default function DeliveryModule({
         </div>
       )}
 
-      {/* MODAL DE OPCIONES DE PAGO DE COLEGIATURA CONECTADO DIRECTAMENTE */}
+      {/* PAYMENT MODAL (DIRECT TUITION PAYMENT) */}
       {settings && (
         <PaymentModal
           isOpen={showPaymentModal}
@@ -566,8 +699,18 @@ export default function DeliveryModule({
             if (onPayTuition) {
               await onPayTuition(studentId, method, amount);
             }
+            // Update student status inside session as well
+            if (activeSession && activeSession.student.id === studentId) {
+              setActiveSession({
+                ...activeSession,
+                student: {
+                  ...activeSession.student,
+                  tuitionStatus: 'Pagado',
+                },
+              });
+            }
             setActionSuccessMessage(`¡Pago de colegiatura de $${amount.toLocaleString('es-MX')} MXN registrado exitosamente!`);
-            setTimeout(() => setActionSuccessMessage(null), 4000);
+            setTimeout(() => setActionSuccessMessage(null), 4500);
           }}
         />
       )}

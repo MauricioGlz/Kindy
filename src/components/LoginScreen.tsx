@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ArrowLeftRight, ArrowLeft, Check, Lock, Sparkles } from 'lucide-react';
+import { ArrowLeftRight, ArrowLeft, Check, Lock, Sparkles, Terminal } from 'lucide-react';
 import { Employee, InstitutionSettings } from '../types.ts';
+import { useDebugMode } from '../context/DebugContext.tsx';
 
 interface LoginScreenProps {
   employees: Employee[];
@@ -15,6 +16,7 @@ export default function LoginScreen({
   onLoginSuccess,
   onDirectDeliveryAccess,
 }: LoginScreenProps) {
+  const { isDebugMode, openDebugModal, deactivateDebugMode } = useDebugMode();
   const [selectedEmployee, setSelectedEmployee] = useState<Employee | null>(null);
   const [pinBuffer, setPinBuffer] = useState<string>('');
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -56,7 +58,11 @@ export default function LoginScreen({
     if (pin === selectedEmployee.pin || pin === '123456') {
       onLoginSuccess(selectedEmployee);
     } else {
-      setErrorMsg('PIN incorrecto. (Usa 123456 en la demo)');
+      setErrorMsg(
+        isDebugMode
+          ? 'PIN incorrecto. (Modo depuración: usa 123456 o PIN de empleado)'
+          : 'PIN incorrecto. Inténtalo de nuevo.'
+      );
       setPinBuffer('');
     }
   };
@@ -87,6 +93,32 @@ export default function LoginScreen({
       {!settings.loginBgUrl && (
         <div className="absolute inset-0 bg-gradient-to-br from-[#E0F2FE]/80 via-[#FCE7F3]/70 to-[#DCFCE7]/70 -z-10" />
       )}
+
+      {/* Top Bar for Debug Mode Access on Login Screen */}
+      <div className="absolute top-4 right-4 z-20">
+        {!isDebugMode ? (
+          <button
+            onClick={openDebugModal}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-white/80 hover:bg-white border border-slate-200/90 rounded-full text-slate-700 text-xs font-semibold shadow-2xs backdrop-blur-md transition cursor-pointer"
+            title="Activar Modo de Depuración"
+          >
+            <Terminal className="w-3.5 h-3.5 text-slate-600" />
+            <span>Modo de depuración</span>
+          </button>
+        ) : (
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-amber-50/95 border border-amber-300 rounded-full text-amber-900 text-xs font-semibold shadow-2xs backdrop-blur-md">
+            <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+            <span>Depuración Activa</span>
+            <button
+              onClick={deactivateDebugMode}
+              className="ml-1 text-amber-700 hover:text-amber-950 font-bold cursor-pointer"
+              title="Cerrar depuración"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+      </div>
 
       <div className="bg-white/95 backdrop-blur-md rounded-3xl shadow-xl p-7 max-w-md w-full border border-pink-100 relative transition-all duration-300">
         {!selectedEmployee ? (
@@ -138,7 +170,7 @@ export default function LoginScreen({
                 className="w-full py-3 px-4 bg-[#FCE7F3] hover:bg-[#fbcfe8] text-pink-950 font-bold rounded-2xl text-xs flex items-center justify-center gap-2 border border-pink-300 transition shadow-2xs cursor-pointer"
               >
                 <ArrowLeftRight className="w-4 h-4 text-pink-600" />
-                Acceso Rápido: Entrega y Recepción (Padres)
+                Acceso Rápido: Entrega y Recepción por Código QR
               </button>
             </div>
           </div>

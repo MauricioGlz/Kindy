@@ -19,6 +19,8 @@ import {
   sqlPayTuition,
   sqlAddDocument,
   sqlAddTeacher,
+  sqlUpdateTeacher,
+  sqlDeleteTeacher,
   sqlUpdateSettings,
   sqlAddEmployee,
   sqlDeleteEmployee,
@@ -47,9 +49,12 @@ import DocumentsModule from './components/DocumentsModule.tsx';
 import TeachersModule from './components/TeachersModule.tsx';
 import SettingsModule from './components/SettingsModule.tsx';
 import SqlConsoleModal from './components/SqlConsoleModal.tsx';
+import DebugAuthModal from './components/DebugAuthModal.tsx';
+import { useDebugMode } from './context/DebugContext.tsx';
 import { ArrowLeft, Database, Loader2 } from 'lucide-react';
 
 export default function App() {
+  const { isDebugMode, isAuthModalOpen, closeDebugModal, setDebugActive } = useDebugMode();
   const [dbLoading, setDbLoading] = useState<boolean>(true);
   const [dbError, setDbError] = useState<string | null>(null);
 
@@ -149,9 +154,11 @@ export default function App() {
     student: Student,
     actionType: 'recepcion' | 'entrega',
     timeStr: string,
-    dateStr: string
+    dateStr: string,
+    authorizedPerson?: string,
+    qrKey?: string
   ) => {
-    await sqlRecordStudentAction(student, actionType, timeStr, dateStr);
+    await sqlRecordStudentAction(student, actionType, timeStr, dateStr, authorizedPerson, qrKey);
     await reloadDataFromSql();
   };
 
@@ -199,6 +206,16 @@ export default function App() {
     await reloadDataFromSql();
   };
 
+  const handleUpdateTeacher = async (teacher: Teacher) => {
+    await sqlUpdateTeacher(teacher);
+    await reloadDataFromSql();
+  };
+
+  const handleDeleteTeacher = async (id: number) => {
+    await sqlDeleteTeacher(id);
+    await reloadDataFromSql();
+  };
+
   const handleUpdateSettings = async (newSettings: InstitutionSettings) => {
     await sqlUpdateSettings(newSettings);
     await reloadDataFromSql();
@@ -230,7 +247,9 @@ export default function App() {
         </h2>
         <p className="text-xs text-slate-500 mt-1 flex items-center gap-1.5 justify-center">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-pink-500" />
-          Inicializando motor de base de datos relacional SQLite (WASM)...
+          {isDebugMode
+            ? 'Inicializando motor de base de datos relacional SQLite (WASM)...'
+            : 'Iniciando portal de gestión escolar...'}
         </p>
       </div>
     );
@@ -240,7 +259,9 @@ export default function App() {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FAF7F5] p-6 text-center">
         <div className="bg-white p-6 rounded-3xl border border-rose-200 max-w-sm shadow-md">
-          <p className="text-xs text-rose-600 font-semibold mb-3">{dbError}</p>
+          <p className="text-xs text-rose-600 font-semibold mb-3">
+            {isDebugMode ? dbError : 'No se pudo inicializar el sistema. Por favor reintenta.'}
+          </p>
           <button
             onClick={() => window.location.reload()}
             className="px-4 py-2 bg-pink-500 text-white rounded-xl text-xs font-bold"
@@ -254,12 +275,19 @@ export default function App() {
 
   if (currentView === 'login') {
     return (
-      <LoginScreen
-        employees={employees}
-        settings={settings}
-        onLoginSuccess={handleLoginSuccess}
-        onDirectDeliveryAccess={handleDirectDeliveryAccess}
-      />
+      <>
+        <LoginScreen
+          employees={employees}
+          settings={settings}
+          onLoginSuccess={handleLoginSuccess}
+          onDirectDeliveryAccess={handleDirectDeliveryAccess}
+        />
+        <DebugAuthModal
+          isOpen={isAuthModalOpen}
+          onClose={closeDebugModal}
+          onSuccess={setDebugActive}
+        />
+      </>
     );
   }
 
@@ -271,7 +299,7 @@ export default function App() {
     profesores: 'Profesores y Educadoras',
     aulas: 'Aulas y Salas',
     documentos: 'Administrador de Documentos',
-    entregas: 'Entregas y Recepciones por PIN',
+    entregas: 'Entregas y Recepciones por Código QR',
     ajustes: 'Ajustes del Sistema',
   };
 
@@ -372,6 +400,8 @@ export default function App() {
             teachers={teachers}
             classrooms={classrooms}
             onAddTeacher={handleAddTeacher}
+            onUpdateTeacher={handleUpdateTeacher}
+            onDeleteTeacher={handleDeleteTeacher}
           />
         )}
 
@@ -388,11 +418,20 @@ export default function App() {
         )}
       </main>
 
-      {/* SQL Console and Live Inspector Modal */}
-      <SqlConsoleModal
-        isOpen={isSqlModalOpen}
-        onClose={() => setIsSqlModalOpen(false)}
-        onRefreshAppState={reloadDataFromSql}
+      {/* SQL Console and Live Inspector Modal (Only in Debug Mode) */}
+      {isDebugMode && (
+        <SqlConsoleModal
+          isOpen={isSqlModalOpen}
+          onClose={() => setIsSqlModalOpen(false)}
+          onRefreshAppState={reloadDataFromSql}
+        />
+      )}
+
+      {/* Debug Mode Server Authentication Modal */}
+      <DebugAuthModal
+        isOpen={isAuthModalOpen}
+        onClose={closeDebugModal}
+        onSuccess={setDebugActive}
       />
     </div>
   );

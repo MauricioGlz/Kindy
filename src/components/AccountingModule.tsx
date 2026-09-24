@@ -1,247 +1,171 @@
-import { useState } from 'react';
-import {
-  FileSpreadsheet,
-  ArrowUpRight,
-  ArrowDownLeft,
-  Wallet,
-  Receipt,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
-  Filter,
-} from 'lucide-react';
+import React, { useState } from 'react';
+import { Calculator, TrendingUp, TrendingDown, DollarSign, Plus, CheckCircle2 } from 'lucide-react';
 import { Student } from '../types.ts';
 
 interface AccountingModuleProps {
   students: Student[];
-  onToggleTuitionStatus: (studentId: number) => void;
 }
 
-export default function AccountingModule({
-  students,
-  onToggleTuitionStatus,
-}: AccountingModuleProps) {
-  const [filterStatus, setFilterStatus] = useState<string>('all');
-  const [exportNotice, setExportNotice] = useState<string | null>(null);
+export default function AccountingModule({ students }: AccountingModuleProps) {
+  const [expenses, setExpenses] = useState<
+    { id: number; concept: string; category: string; amount: number; date: string }[]
+  >([
+    { id: 1, concept: 'Material didáctico y pintura Montessori', category: 'Materiales', amount: 3500, date: '2026-09-02' },
+    { id: 2, concept: 'Servicio de comedor y frutas orgánicas', category: 'Alimentos', amount: 8200, date: '2026-09-05' },
+    { id: 3, concept: 'Mantenimiento de áreas de juegos y desinfección', category: 'Mantenimiento', amount: 4100, date: '2026-09-10' },
+  ]);
 
-  const totalIncome = students
+  const [newConcept, setNewConcept] = useState('');
+  const [newCategory, setNewCategory] = useState('Materiales');
+  const [newAmount, setNewAmount] = useState(1500);
+
+  const totalTuitionIncome = students
     .filter((s) => s.tuitionStatus === 'Pagado')
-    .reduce((acc, s) => acc + s.tuitionAmount, 0) + 40000; // Base historical fees
+    .reduce((sum, s) => sum + s.tuitionAmount, 0);
 
-  const totalExpenses = 18450;
-  const netBalance = totalIncome - totalExpenses;
+  const totalExpectedIncome = students.reduce((sum, s) => sum + s.tuitionAmount, 0);
+  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
+  const netBalance = totalTuitionIncome - totalExpenses;
 
-  const filteredStudents = students.filter((s) => {
-    if (filterStatus === 'all') return true;
-    return s.tuitionStatus.toLowerCase() === filterStatus.toLowerCase();
-  });
-
-  const handleExport = () => {
-    const csvHeader = 'ID,Alumno,Aula,Colegiatura,Estado\n';
-    const rows = students
-      .map((s) => `${s.id},"${s.name}","${s.classroom}",$${s.tuitionAmount},${s.tuitionStatus}`)
-      .join('\n');
-    const blob = new Blob([csvHeader + rows], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.setAttribute('href', url);
-    link.setAttribute('download', `reporte_contabilidad_kinder_${new Date().toISOString().split('T')[0]}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-    setExportNotice('¡Archivo CSV de colegiaturas exportado exitosamente!');
-    setTimeout(() => setExportNotice(null), 3500);
+  const handleAddExpense = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newConcept.trim()) return;
+    const item = {
+      id: Date.now(),
+      concept: newConcept.trim(),
+      category: newCategory,
+      amount: newAmount,
+      date: new Date().toISOString().split('T')[0],
+    };
+    setExpenses([item, ...expenses]);
+    setNewConcept('');
   };
 
   return (
-    <div id="view-module-contabilidad" className="w-full max-w-4xl space-y-5">
-      {exportNotice && (
-        <div className="bg-emerald-50 border border-emerald-300 text-emerald-900 px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center gap-2 shadow-2xs animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4 text-emerald-600" />
-          <span>{exportNotice}</span>
+    <div id="view-module-accounting" className="w-full max-w-5xl space-y-5">
+      <div className="bg-white p-5 sm:p-6 rounded-3xl border border-slate-200/90 shadow-2xs">
+        <div className="flex items-center gap-2 mb-1">
+          <span className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center text-purple-700">
+            <Calculator className="w-4 h-4" />
+          </span>
+          <span className="text-xs font-bold text-purple-800 uppercase tracking-wide">
+            Finanzas y Caja Escolar
+          </span>
         </div>
-      )}
-
-      {/* Top Header */}
-      <div className="flex flex-wrap justify-between items-center bg-white p-4 rounded-3xl border border-slate-200/90 shadow-2xs gap-3">
-        <div>
-          <h2 className="text-lg font-bold text-slate-800 tracking-tight flex items-center gap-2">
-            <Receipt className="w-5 h-5 text-emerald-600" /> Módulo Contable y Colegiaturas
-          </h2>
-          <p className="text-xs text-slate-500">
-            Supervisión de colegiaturas, ingresos y egresos institucionales
-          </p>
-        </div>
-        <button
-          id="btn-export-accounting"
-          onClick={handleExport}
-          className="px-4 py-2 bg-[#E0F2FE] hover:bg-sky-200 text-sky-950 rounded-xl text-xs font-bold flex items-center gap-1.5 transition shadow-2xs cursor-pointer border border-sky-300"
-        >
-          <FileSpreadsheet className="w-4 h-4 text-sky-800" /> Exportar Datos CSV
-        </button>
+        <h2 className="text-xl font-bold text-slate-800 tracking-tight">Balance Contable y Flujo de Caja</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Resumen de ingresos recaudados por colegiaturas y egresos operativos del mes.
+        </p>
       </div>
 
-      {/* Metrics Cards: Ingresos, Egresos, Balance */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-white p-4 rounded-3xl border border-emerald-100 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-xs text-slate-400 font-semibold block">Total Ingresos</span>
-            <span className="text-xl font-bold text-emerald-600 font-mono tracking-tight">
-              ${totalIncome.toLocaleString('es-MX')}.00
-            </span>
-            <span className="text-[10px] text-emerald-700 block mt-0.5">Colegiaturas y cuotas</span>
+      {/* Financial Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-emerald-100 text-emerald-600 flex items-center justify-center shrink-0">
+            <TrendingUp className="w-6 h-6" />
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-[#DCFCE7] flex items-center justify-center text-emerald-600 shadow-2xs">
-            <ArrowUpRight className="w-6 h-6" />
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Ingresos Cobrados</span>
+            <span className="text-xl font-bold text-emerald-600 font-mono">
+              ${totalTuitionIncome.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] text-slate-400 block">De ${totalExpectedIncome.toLocaleString('es-MX')} presupuestado</span>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-3xl border border-pink-100 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-xs text-slate-400 font-semibold block">Total Egresos</span>
-            <span className="text-xl font-bold text-rose-500 font-mono tracking-tight">
-              ${totalExpenses.toLocaleString('es-MX')}.00
-            </span>
-            <span className="text-[10px] text-rose-600 block mt-0.5">Nómina e insumos didácticos</span>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+            <TrendingDown className="w-6 h-6" />
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-[#FCE7F3] flex items-center justify-center text-rose-500 shadow-2xs">
-            <ArrowDownLeft className="w-6 h-6" />
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Egresos Operativos</span>
+            <span className="text-xl font-bold text-rose-600 font-mono">
+              ${totalExpenses.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] text-slate-400 block">{expenses.length} conceptos registrados</span>
           </div>
         </div>
 
-        <div className="bg-white p-4 rounded-3xl border border-blue-100 shadow-2xs flex items-center justify-between">
-          <div>
-            <span className="text-xs text-slate-400 font-semibold block">Balance Neto</span>
-            <span className="text-xl font-bold text-sky-700 font-mono tracking-tight">
-              ${netBalance.toLocaleString('es-MX')}.00
-            </span>
-            <span className="text-[10px] text-sky-700 block mt-0.5">Superávit operativo</span>
+        <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-2xs flex items-center gap-3">
+          <div className="w-11 h-11 rounded-xl bg-indigo-100 text-indigo-600 flex items-center justify-center shrink-0">
+            <DollarSign className="w-6 h-6" />
           </div>
-          <div className="w-11 h-11 rounded-2xl bg-[#E0F2FE] flex items-center justify-center text-sky-600 shadow-2xs">
-            <Wallet className="w-6 h-6" />
+          <div>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">Flujo Neto / Saldo</span>
+            <span className={`text-xl font-bold font-mono ${netBalance >= 0 ? 'text-indigo-600' : 'text-rose-600'}`}>
+              ${netBalance.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+            </span>
+            <span className="text-[10px] text-slate-400 block">Superávit activo</span>
           </div>
         </div>
       </div>
 
-      {/* Student Tuition Control Table */}
-      <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="font-bold text-slate-800 text-sm">
-            Control de Colegiaturas por Alumnos ({students.length})
-          </h3>
-
-          {/* Filters */}
-          <div className="flex items-center gap-1.5 text-xs">
-            <Filter className="w-3.5 h-3.5 text-slate-400" />
-            <button
-              onClick={() => setFilterStatus('all')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                filterStatus === 'all'
-                  ? 'bg-slate-800 text-white'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
-              }`}
+      {/* Register expense form */}
+      <div className="bg-white p-5 rounded-3xl border border-slate-200/90 shadow-2xs space-y-3">
+        <h3 className="font-bold text-slate-800 text-sm">Registrar Egreso o Gasto Operativo</h3>
+        <form onSubmit={handleAddExpense} className="grid grid-cols-1 sm:grid-cols-4 gap-2.5">
+          <div className="sm:col-span-2">
+            <input
+              type="text"
+              required
+              placeholder="Concepto del gasto (ej. Materiales de arte)"
+              value={newConcept}
+              onChange={(e) => setNewConcept(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 focus:bg-white"
+            />
+          </div>
+          <div>
+            <select
+              value={newCategory}
+              onChange={(e) => setNewCategory(e.target.value)}
+              className="w-full text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50"
             >
-              Todos ({students.length})
-            </button>
+              <option value="Materiales">Materiales Didácticos</option>
+              <option value="Alimentos">Comedor y Alimentos</option>
+              <option value="Mantenimiento">Mantenimiento</option>
+              <option value="Servicios">Servicios (Luz/Agua)</option>
+              <option value="Nómina">Nómina y Asistencias</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="number"
+              required
+              min={1}
+              value={newAmount}
+              onChange={(e) => setNewAmount(Number(e.target.value))}
+              className="w-28 text-xs px-3 py-2 rounded-xl border border-slate-200 bg-slate-50 text-right"
+            />
             <button
-              onClick={() => setFilterStatus('pagado')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                filterStatus === 'pagado'
-                  ? 'bg-emerald-600 text-white'
-                  : 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100'
-              }`}
+              type="submit"
+              className="flex-1 px-4 py-2 bg-pink-500 hover:bg-pink-600 text-white rounded-xl text-xs font-bold transition cursor-pointer"
             >
-              Pagados ({students.filter((s) => s.tuitionStatus === 'Pagado').length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('pendiente')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                filterStatus === 'pendiente'
-                  ? 'bg-amber-600 text-white'
-                  : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-              }`}
-            >
-              Pendientes ({students.filter((s) => s.tuitionStatus === 'Pendiente').length})
-            </button>
-            <button
-              onClick={() => setFilterStatus('vencido')}
-              className={`px-2.5 py-1 rounded-lg font-medium transition cursor-pointer ${
-                filterStatus === 'vencido'
-                  ? 'bg-rose-600 text-white'
-                  : 'bg-rose-50 text-rose-800 hover:bg-rose-100'
-              }`}
-            >
-              Vencidos ({students.filter((s) => s.tuitionStatus === 'Vencido').length})
+              Agregar
             </button>
           </div>
-        </div>
+        </form>
+      </div>
 
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead>
-              <tr className="border-b border-slate-100 text-slate-400 uppercase text-[10px] tracking-wider">
-                <th className="pb-3 font-semibold">Alumno</th>
-                <th className="pb-3 font-semibold">Aula</th>
-                <th className="pb-3 font-semibold">Monto Mensual</th>
-                <th className="pb-3 font-semibold">Beca</th>
-                <th className="pb-3 font-semibold">Estado Colegiatura</th>
-                <th className="pb-3 font-semibold text-right">Acción</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-slate-600">
-              {filteredStudents.map((child) => {
-                const badgeClass =
-                  child.tuitionStatus === 'Pagado'
-                    ? 'bg-emerald-100 text-emerald-800 border border-emerald-200'
-                    : child.tuitionStatus === 'Pendiente'
-                    ? 'bg-amber-100 text-amber-800 border border-amber-200'
-                    : 'bg-rose-100 text-rose-800 border border-rose-200';
-
-                return (
-                  <tr key={child.id} className="hover:bg-slate-50/70 transition">
-                    <td className="py-3 flex items-center gap-2.5">
-                      <img
-                        src={child.photo}
-                        alt={child.name}
-                        className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
-                      />
-                      <div>
-                        <span className="font-semibold text-slate-800 block">{child.name}</span>
-                        <span className="text-[10px] text-slate-400">{child.paymentDate}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 font-medium">{child.classroom}</td>
-                    <td className="py-3 font-mono font-bold text-slate-800">
-                      ${child.tuitionAmount.toLocaleString('es-MX')}.00
-                    </td>
-                    <td className="py-3">
-                      {child.hasScholarship ? (
-                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-[#DCFCE7] text-emerald-900 border border-emerald-200">
-                          {child.scholarshipPercent}% Desc.
-                        </span>
-                      ) : (
-                        <span className="text-slate-400 text-[10px]">Normal</span>
-                      )}
-                    </td>
-                    <td className="py-3">
-                      <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${badgeClass}`}>
-                        {child.tuitionStatus}
-                      </span>
-                    </td>
-                    <td className="py-3 text-right">
-                      <button
-                        onClick={() => onToggleTuitionStatus(child.id)}
-                        className="px-3 py-1.5 bg-[#E0F2FE] hover:bg-sky-200 text-sky-950 rounded-xl text-xs font-semibold transition cursor-pointer border border-sky-300 shadow-2xs"
-                      >
-                        Cambiar Estado
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+      {/* Expenses List */}
+      <div className="bg-white rounded-3xl border border-slate-200/90 p-5 shadow-2xs space-y-3">
+        <h3 className="font-bold text-slate-800 text-sm">Historial de Egresos</h3>
+        <div className="space-y-2">
+          {expenses.map((exp) => (
+            <div
+              key={exp.id}
+              className="p-3 bg-slate-50 rounded-2xl border border-slate-200 flex items-center justify-between text-xs"
+            >
+              <div>
+                <span className="font-bold text-slate-800 block">{exp.concept}</span>
+                <span className="text-[10px] text-slate-400">
+                  {exp.category} • {exp.date}
+                </span>
+              </div>
+              <span className="font-mono font-bold text-rose-600">
+                -${exp.amount.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
     </div>

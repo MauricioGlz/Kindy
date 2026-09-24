@@ -7,12 +7,8 @@ import {
   Clock,
   Building2,
   Calendar,
-  DollarSign,
-  Receipt,
   Users,
   BadgePercent,
-  Sparkles,
-  ArrowUpDown,
 } from 'lucide-react';
 import { Student, InstitutionSettings } from '../types.ts';
 import PaymentModal from './PaymentModal.tsx';
@@ -264,7 +260,7 @@ export default function ColegiaturasModule({
                     )}
                   </div>
                   <p className="text-[11px] text-slate-500 mt-1">
-                    Tutor: <span className="text-slate-700 font-medium">{std.father || std.mother}</span> • PIN: <span className="font-mono">{std.securityPin}</span>
+                    Tutor: <span className="text-slate-700 font-medium">{std.father || std.mother}</span> • Pase QR: <span className="font-mono text-[10px] bg-pink-50 text-pink-700 px-1.5 py-0.5 rounded font-semibold">{std.parentQrKey || 'Activo'}</span>
                   </p>
                 </div>
               </div>
